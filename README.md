@@ -25,7 +25,7 @@ PASS  tests/shop.pv:7  Adding a product counts it in the cart  (557 ms)
 1 passed, 0 failed in 0.9 s
 ```
 
-Status: **M0 spike** (working name). The plan, the language and the
+Status: **M1 in progress** (working name). The plan, the language and the
 milestones are in agent-guidance `plans/prova.md`.
 
 ## The format
@@ -74,7 +74,7 @@ milestones are in agent-guidance `plans/prova.md`.
 
 ```text
 primavera run [<file.pv|dir>...] [--base-url <url>] [--var k=v] [--grep <text>] [--tag <tag>]
-              [--workers <n|auto>] [--retries <n>] [--fail-on-flaky] [--shard <i/n>]
+              [--workers <n|auto>] [--isolation context|browser] [--retries <n>] [--fail-on-flaky] [--shard <i/n>]
               [--reporter console|jsonl|github] [--junit <file>] [--json]
               [--timeout-ms <ms>] [--wait-ms <ms>] [--headed] [--chromium <path>]
 primavera lint [<file.pv|dir>...]
@@ -83,8 +83,10 @@ primavera list [<file.pv|dir>...]
 
 - Every scenario starts in a fresh browser context (navigera `reset`: no
   cookies, storage or tabs from the scenario before), in about 40 ms
-  instead of a new browser's few hundred. `--workers n` runs n at once, a
-  browser each; the longest (from `.primavera/timings.json`) start first.
+  instead of a new browser's few hundred. `--workers n` runs n at once,
+  each in a browser context of one shared browser (about 40% less memory
+  at 4 workers than a browser each; `--isolation browser` gives each its
+  own); the longest (from `.primavera/timings.json`) start first.
 - `--retries n` runs a failing scenario again; one that passes then is
   reported FLAKY with how its first try failed. `--fail-on-flaky` fails
   the run on one. `--shard i/n` takes every n-th scenario, for CI matrix
