@@ -56,23 +56,61 @@ pub struct ScenarioResult {
     pub file: PathBuf,
     pub name: String,
     pub line: usize,
+    pub tags: Vec<String>,
     pub ms: f64,
     #[allow(dead_code)]
     pub steps: Vec<StepResult>,
     pub failure: Option<Failure>,
+    /// 1 for the first try; more when `--retries` ran it again.
+    pub attempt: u32,
+    /// How the earlier tries failed (a scenario that passed after one is
+    /// flaky).
+    pub retried: Vec<Failure>,
+    /// What it saved, for `--json`.
+    pub saved: BTreeMap<String, String>,
+    /// Which worker ran it.
+    pub worker: usize,
 }
 
 impl ScenarioResult {
     pub fn passed(&self) -> bool {
         self.failure.is_none()
     }
+
+    pub fn flaky(&self) -> bool {
+        self.passed() && !self.retried.is_empty()
+    }
+
+    /// `file::name`, the key of `.primavera/timings.json`.
+    pub fn key(&self) -> String {
+        format!("{}::{}", self.file.display(), self.name)
+    }
 }
 
-/// Which scenarios a run takes, after `--grep` and `--tag`.
-pub fn selected<'a>(suites: &'a [Suite], opts: &Options) -> Vec<(&'a Suite, &'a Scenario)> {
+/// A scenario to run: indexes into the run's suites.
+#[derive(Debug, Clone, Copy)]
+pub struct Job {
+    pub suite: usize,
+    pub scenario: usize,
+}
+
+impl Job {
+    pub fn get<'a>(&self, suites: &'a [Suite]) -> (&'a Suite, &'a Scenario) {
+        let s = &suites[self.suite];
+        (s, &s.scenarios[self.scenario])
+    }
+
+    pub fn key(&self, suites: &[Suite]) -> String {
+        let (s, sc) = self.get(suites);
+        format!("{}::{}", s.file.display(), sc.name)
+    }
+}
+
+/// Which scenarios a run takes, after `--grep` and `--tag`, in file order.
+pub fn jobs(suites: &[Suite], opts: &Options) -> Vec<Job> {
     let mut out = Vec::new();
-    for suite in suites {
-        for sc in &suite.scenarios {
+    for (si, suite) in suites.iter().enumerate() {
+        for (ci, sc) in suite.scenarios.iter().enumerate() {
             if let Some(g) = &opts.grep {
                 if !sc.name.to_lowercase().contains(&g.to_lowercase()) {
                     continue;
@@ -81,7 +119,7 @@ pub fn selected<'a>(suites: &'a [Suite], opts: &Options) -> Vec<(&'a Suite, &'a 
             if !opts.tags.is_empty() && !opts.tags.iter().any(|t| sc.tags.contains(t)) {
                 continue;
             }
-            out.push((suite, sc));
+            out.push(Job { suite: si, scenario: ci });
         }
     }
     out
@@ -91,6 +129,7 @@ pub struct Runner {
     driver: Driver,
     opts: Options,
     fresh: bool,
+    attempt: u32,
 }
 
 impl Runner {
@@ -103,10 +142,11 @@ impl Runner {
             ..SessionConfig::default()
         };
         let driver = Driver::launch(&config)?;
-        Ok(Runner { driver, opts, fresh: true })
+        Ok(Runner { driver, opts, fresh: true, attempt: 1 })
     }
 
-    pub fn run(&mut self, suite: &Suite, scenario: &Scenario) -> ScenarioResult {
+    pub fn run(&mut self, suite: &Suite, scenario: &Scenario, attempt: u32) -> ScenarioResult {
+        self.attempt = attempt;
         let started = Instant::now();
         let mut scope = Scope::new(suite, &self.opts);
         let mut steps = Vec::new();
@@ -152,9 +192,14 @@ impl Runner {
             file: suite.file.clone(),
             name: scenario.name.clone(),
             line: scenario.line,
+            tags: scenario.tags.clone(),
             ms: started.elapsed().as_secs_f64() * 1000.0,
             steps,
             failure,
+            attempt,
+            retried: Vec::new(),
+            saved: scope.saved,
+            worker: 0,
         }
     }
 
@@ -165,7 +210,11 @@ impl Runner {
                 v.get("title").and_then(Value::as_str).unwrap_or("").to_string(),
             )
         });
-        let shot = self.opts.evidence.join(evidence_name(&suite.file, &sc.name)).join("screenshot.png");
+        let mut dir = evidence_name(&suite.file, &sc.name);
+        if self.attempt > 1 {
+            dir.push_str(&format!("-try{}", self.attempt));
+        }
+        let shot = self.opts.evidence.join(dir).join("screenshot.png");
         let screenshot = std::fs::create_dir_all(shot.parent().unwrap_or(Path::new(".")))
             .ok()
             .and_then(|_| {
