@@ -48,6 +48,9 @@ milestones are in agent-guidance `plans/prova.md`.
   and `set`s. A failure inside a flow names the flow's own line.
 - `optional <step>`: a step that may not apply (a cookie banner that only
   sometimes shows); its failure is noted, not fatal.
+- `if <expect clause>` with steps indented under it runs them when the
+  clause holds now (or within its `--timeout-ms`): `if --selector
+  "#banner" visible`, then `click --text Accept` indented below.
 - Data rows: an indented `examples` line with a table under it, or
   `scenario "…" for each logins.csv`, makes one scenario per row, named
   from the row (`scenario "Ship to ${country}"`); the row's columns are
