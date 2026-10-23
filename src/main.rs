@@ -2,6 +2,7 @@
 //! through navigera. See README.md.
 
 mod expect;
+mod nearest;
 mod report;
 mod runner;
 mod suite;

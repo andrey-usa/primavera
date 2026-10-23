@@ -49,6 +49,9 @@ pub struct Failure {
     /// Something earlier that likely explains it (a click that changed nothing).
     pub hint: Option<String>,
     pub screenshot: Option<PathBuf>,
+    /// When the element wasn't there: what on the page comes closest,
+    /// (`role "name"`, a locator for it, how close).
+    pub nearest: Vec<(String, String, f64)>,
 }
 
 #[derive(Debug, Clone)]
@@ -164,6 +167,7 @@ impl Runner {
                     at: None,
                     hint: None,
                     screenshot: None,
+                    nearest: Vec::new(),
                 });
             }
         }
@@ -225,7 +229,24 @@ impl Runner {
                 self.driver.run(&cmd).ok()
             })
             .map(|_| shot);
-        Failure { line: step.line, text: step.text.clone(), message, at, hint: scope.noop.clone(), screenshot }
+        let nearest = if message.contains("no element") { self.nearest(&step.action, scope) } else { Vec::new() };
+        Failure { line: step.line, text: step.text.clone(), message, at, hint: scope.noop.clone(), screenshot, nearest }
+    }
+
+    /// What on the page comes closest to the element a step asked for.
+    fn nearest(&mut self, action: &Action, scope: &Scope) -> Vec<(String, String, f64)> {
+        let words = match action {
+            Action::Command(w) | Action::Save { command: w, .. } => w.clone(),
+            Action::Expect(Expect { subject: Subject::Target { flags, .. }, .. }) => flags.clone(),
+            Action::Optional(inner) => return self.nearest(inner, scope),
+            _ => return Vec::new(),
+        };
+        let words = scope.words(&words).unwrap_or(words);
+        let Some(want) = crate::nearest::wanted(&words) else { return Vec::new() };
+        match self.command(&["ax".into(), "--format".into(), "json".into()]) {
+            Ok(ax) => crate::nearest::rank(&ax, &want, 3),
+            Err(_) => Vec::new(),
+        }
     }
 
     fn step(&mut self, step: &Step, scope: &mut Scope, suite: &Suite) -> Result<(), String> {

@@ -93,7 +93,10 @@ fn a_failure_says_what_was_expected_seen_and_why() {
         out.contains("in flow open-docs, failing.pv:15 `expect title contains \"Nope\" --timeout-ms 300`"),
         "{out}"
     );
-    assert!(out.contains("0 passed, 3 failed"), "{out}");
+    assert!(out.contains("nearest on the page:"), "{out}");
+    assert!(out.contains("1. button \"Accept all\""), "{out}");
+    assert!(out.contains("--role button --name \"Accept all\""), "{out}");
+    assert!(out.contains("0 passed, 4 failed"), "{out}");
 }
 
 #[test]

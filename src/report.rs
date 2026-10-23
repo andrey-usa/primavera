@@ -28,6 +28,14 @@ fn failure_lines(out: &mut String, f: &Failure, indent: &str) {
     if let Some((url, title)) = &f.at {
         let _ = writeln!(out, "{indent}at {url} {title:?}");
     }
+    if !f.nearest.is_empty() {
+        let _ = writeln!(out, "{indent}nearest on the page:");
+        let width = f.nearest.iter().map(|n| n.0.chars().count()).max().unwrap_or(0);
+        for (i, (shown, locator, score)) in f.nearest.iter().enumerate() {
+            let pad = " ".repeat(width - shown.chars().count());
+            let _ = writeln!(out, "{indent}  {}. {shown}{pad}   {locator}   {score:.2}", i + 1);
+        }
+    }
     if let Some(h) = &f.hint {
         let _ = writeln!(out, "{indent}note: {h}");
     }
@@ -75,6 +83,9 @@ fn failure_json(f: &Failure) -> serde_json::Value {
         "title": f.at.as_ref().map(|a| a.1.clone()),
         "note": f.hint,
         "screenshot": f.screenshot.as_ref().map(|p| p.display().to_string()),
+        "nearest": f.nearest.iter().map(|(shown, locator, score)| serde_json::json!({
+            "element": shown, "locator": locator, "score": (score * 100.0).round() / 100.0,
+        })).collect::<Vec<_>>(),
     })
 }
 
@@ -128,6 +139,9 @@ pub fn github(r: &ScenarioResult) -> String {
     match (&r.failure, r.retried.first()) {
         (Some(f), _) => {
             let mut msg = format!("{}\n{}", f.text, f.message);
+            if let Some((shown, locator, _)) = f.nearest.first() {
+                msg.push_str(&format!("\nnearest: {shown}  {locator}"));
+            }
             if let Some(h) = &f.hint {
                 msg.push_str(&format!("\nnote: {h}"));
             }
@@ -209,6 +223,9 @@ pub fn junit(results: &[ScenarioResult], ms: f64) -> String {
                     if let Some((url, title)) = &f.at {
                         let _ = writeln!(body, "at {url} {title:?}");
                     }
+                    for (shown, locator, _) in &f.nearest {
+                        let _ = writeln!(body, "nearest: {shown}  {locator}");
+                    }
                     if let Some(h) = &f.hint {
                         let _ = writeln!(body, "note: {h}");
                     }
@@ -263,6 +280,7 @@ mod tests {
                 at: None,
                 hint: None,
                 screenshot: None,
+                nearest: vec![],
             }),
             ..pass.clone()
         };
@@ -300,6 +318,7 @@ mod tests {
                 at: None,
                 hint: None,
                 screenshot: None,
+                nearest: vec![],
             }),
             attempt: 1,
             retried: vec![],

@@ -96,7 +96,16 @@ primavera list [<file.pv|dir>...]
 - A failure prints the step, what was expected and seen, where the page
   was, a screenshot (under `.primavera/runs/`), and a note when an earlier
   click changed nothing on the page (navigera's `no_effect`), the usual
-  reason the next check fails.
+  reason the next check fails. When the element isn't there, it lists the
+  closest ones on the page as locators to paste in:
+
+  ```text
+  FAIL  shop.pv:21  Accept the cookies  (611 ms)
+        line 23: click --role button --name "Accept everything"
+        click role="button" name="Accept everything": … no element …
+        nearest on the page:
+          1. button "Accept all"   --role button --name "Accept all"   0.63
+  ```
 - Exit codes: 0 passed, 1 a scenario failed, 2 a file or argument is wrong,
   3 the browser didn't start.
 

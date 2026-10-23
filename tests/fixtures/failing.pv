@@ -17,3 +17,7 @@ flow open-docs
 scenario "A flow's failure says where in the flow"
   optional click --selector "#not-here" --timeout-ms 200
   run open-docs
+
+scenario "A missing button names the closest ones"
+  goto /shop
+  click --role button --name "Accept everything" --timeout-ms 300
