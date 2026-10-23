@@ -289,3 +289,28 @@ fn a_pause_leaves_the_failing_tab_to_navigera() {
     let status = child.wait().unwrap();
     assert_eq!(status.code(), Some(1));
 }
+
+#[test]
+fn repeat_and_shuffle_hunt_flakes() {
+    let (true, Some(site)) = (chrome(), own_site()) else { return };
+    let (code, out) =
+        primavera(&["run", "tests/fixtures/flaky.pv", "--base-url", &site.1, "--repeat", "3", "--shuffle", "42"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("shuffled with seed 42"), "{out}");
+    assert!(out.contains("FLAKY 2/3  tests/fixtures/flaky.pv  Fails once, then passes"), "{out}");
+    assert!(out.contains("    3/3  tests/fixtures/flaky.pv  Steady"), "{out}");
+    assert!(out.contains("Steady #3"), "{out}");
+    // The same seed, the same order.
+    let order = |out: &str| -> Vec<String> {
+        out.lines()
+            .filter(|l| l.starts_with("PASS") || l.starts_with("FAIL"))
+            .map(|l| l.split("  ").nth(2).unwrap_or("").to_string())
+            .collect()
+    };
+    let (_, again) = primavera(&["list", "tests/fixtures/flaky.pv"]);
+    assert_eq!(again.lines().count(), 2, "{again}");
+    let site2 = own_site().unwrap();
+    let (_, out2) =
+        primavera(&["run", "tests/fixtures/flaky.pv", "--base-url", &site2.1, "--repeat", "3", "--shuffle", "42"]);
+    assert_eq!(order(&out), order(&out2), "{out}\n{out2}");
+}
