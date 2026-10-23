@@ -101,6 +101,7 @@ pub fn jsonl(r: &ScenarioResult) -> String {
         "failure": r.failure.as_ref().map(failure_json),
         "retried": r.retried.iter().map(failure_json).collect::<Vec<_>>(),
         "saved": r.saved,
+        "notes": r.notes,
     });
     format!("{v}\n")
 }
@@ -249,6 +250,7 @@ mod tests {
             attempt: 1,
             retried: vec![],
             saved: Default::default(),
+            notes: vec![],
             worker: 0,
         };
         let fail = ScenarioResult {
@@ -302,6 +304,7 @@ mod tests {
             attempt: 1,
             retried: vec![],
             saved: Default::default(),
+            notes: vec![],
             worker: 0,
         }
     }

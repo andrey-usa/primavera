@@ -74,9 +74,9 @@ fn the_examples_pass_on_the_bench_site() {
     let (code, out) =
         primavera(&["run", "examples/bench-site", "--base-url", &site.1, "--junit", &junit.display().to_string()]);
     assert_eq!(code, 0, "{out}");
-    assert!(out.contains("7 passed, 0 failed"), "{out}");
+    assert!(out.contains("10 passed, 0 failed"), "{out}");
     let xml = std::fs::read_to_string(&junit).unwrap();
-    assert!(xml.contains("tests=\"7\" failures=\"0\""), "{xml}");
+    assert!(xml.contains("tests=\"10\" failures=\"0\""), "{xml}");
 }
 
 #[test]
@@ -89,14 +89,18 @@ fn a_failure_says_what_was_expected_seen_and_why() {
     assert!(out.contains("expected --selector #cart-count text is \"2\" within 600 ms; saw \"1\""), "{out}");
     assert!(out.contains("note: the step at line 10 (click --selector \"h1\") changed nothing"), "{out}");
     assert!(out.contains("screenshot "), "{out}");
-    assert!(out.contains("0 passed, 2 failed"), "{out}");
+    assert!(
+        out.contains("in flow open-docs, failing.pv:15 `expect title contains \"Nope\" --timeout-ms 300`"),
+        "{out}"
+    );
+    assert!(out.contains("0 passed, 3 failed"), "{out}");
 }
 
 #[test]
 fn lint_and_list_need_no_browser() {
     let (code, out) = primavera(&["lint", "examples"]);
     assert_eq!(code, 0, "{out}");
-    assert!(out.contains("2 file(s), 7 scenario(s)"), "{out}");
+    assert!(out.contains("4 file(s), 10 scenario(s)"), "{out}");
     let (code, out) = primavera(&["list", "examples", "--tag", "smoke"]);
     assert_eq!(code, 0, "{out}");
     assert_eq!(out.lines().count(), 2, "{out}");

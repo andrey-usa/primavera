@@ -68,6 +68,8 @@ pub struct ScenarioResult {
     pub retried: Vec<Failure>,
     /// What it saved, for `--json`.
     pub saved: BTreeMap<String, String>,
+    /// Optional steps that didn't happen.
+    pub notes: Vec<String>,
     /// Which worker ran it.
     pub worker: usize,
 }
@@ -148,7 +150,7 @@ impl Runner {
     pub fn run(&mut self, suite: &Suite, scenario: &Scenario, attempt: u32) -> ScenarioResult {
         self.attempt = attempt;
         let started = Instant::now();
-        let mut scope = Scope::new(suite, &self.opts);
+        let mut scope = Scope::new(suite, scenario, &self.opts);
         let mut steps = Vec::new();
         let mut failure = None;
         // A clean browser context for every scenario but the first one of
@@ -170,7 +172,7 @@ impl Runner {
         if failure.is_none() {
             for step in all {
                 let t = Instant::now();
-                let res = self.step(step, &mut scope);
+                let res = self.step(step, &mut scope, suite);
                 let ms = t.elapsed().as_secs_f64() * 1000.0;
                 steps.push(StepResult { line: step.line, text: step.text.clone(), ms, ok: res.is_ok() });
                 if let Err(message) = res {
@@ -182,7 +184,7 @@ impl Runner {
         // `after each` runs whatever happened; its own failures count only
         // when the scenario had passed.
         for step in &suite.after_each {
-            if let Err(message) = self.step(step, &mut scope) {
+            if let Err(message) = self.step(step, &mut scope, suite) {
                 if failure.is_none() {
                     failure = Some(self.failure(step, message, &scope, suite, scenario));
                 }
@@ -199,6 +201,7 @@ impl Runner {
             attempt,
             retried: Vec::new(),
             saved: scope.saved,
+            notes: scope.notes,
             worker: 0,
         }
     }
@@ -225,8 +228,19 @@ impl Runner {
         Failure { line: step.line, text: step.text.clone(), message, at, hint: scope.noop.clone(), screenshot }
     }
 
-    fn step(&mut self, step: &Step, scope: &mut Scope) -> Result<(), String> {
-        match &step.action {
+    fn step(&mut self, step: &Step, scope: &mut Scope, suite: &Suite) -> Result<(), String> {
+        self.action(&step.action, step, scope, suite, 0)
+    }
+
+    fn action(
+        &mut self,
+        action: &Action,
+        step: &Step,
+        scope: &mut Scope,
+        suite: &Suite,
+        depth: usize,
+    ) -> Result<(), String> {
+        match action {
             Action::Command(words) => {
                 let words = scope.words(words)?;
                 let outcome = self.command(&words)?;
@@ -247,6 +261,30 @@ impl Runner {
                 Ok(())
             }
             Action::Expect(e) => self.expect(e, scope),
+            Action::Optional(inner) => {
+                if let Err(e) = self.action(inner, step, scope, suite, depth) {
+                    scope.notes.push(format!("optional step at line {} didn't happen: {e}", step.line));
+                }
+                Ok(())
+            }
+            Action::Run { flow, args } => {
+                if depth >= 16 {
+                    return Err(format!("flows nest more than 16 deep at {flow} (a flow that runs itself?)"));
+                }
+                let f = suite.flows.get(flow).ok_or_else(|| format!("no flow named {flow:?}"))?;
+                let values = scope.words(args)?;
+                scope.layers.push(f.params.iter().cloned().zip(values).collect());
+                let mut result = Ok(());
+                for st in &f.steps {
+                    if let Err(e) = self.action(&st.action, st, scope, suite, depth + 1) {
+                        let file = f.file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                        result = Err(format!("in flow {flow}, {file}:{} `{}`: {e}", st.line, st.text));
+                        break;
+                    }
+                }
+                scope.layers.pop();
+                result
+            }
         }
     }
 
@@ -331,6 +369,75 @@ impl Runner {
             Subject::Var(raw) => {
                 let actual = scope.word(raw)?;
                 (compare(&actual, e.matcher, value), actual)
+            }
+            Subject::Js(code) => {
+                let code = scope.word(code)?;
+                match self.command(&["eval".into(), code]) {
+                    Ok(v) => {
+                        let actual = match &v {
+                            Value::String(s) => s.clone(),
+                            Value::Null => "null".into(),
+                            other => other.to_string(),
+                        };
+                        let holds = if e.matcher == Matcher::Holds {
+                            !matches!(&v, Value::Null | Value::Bool(false))
+                                && v != serde_json::json!(0)
+                                && v != serde_json::json!("")
+                        } else {
+                            compare(&actual, e.matcher, value)
+                        };
+                        (holds, actual)
+                    }
+                    Err(err) => (false, err),
+                }
+            }
+            Subject::Request { method, url, status } => {
+                let url = scope.word(url)?;
+                let v = self.command(&["network".into(), "--limit".into(), "1000".into()])?;
+                // `#3 POST 200 Fetch /api/cart 196 B 3 ms`; another origin's
+                // URL in full, matched by its path too.
+                let mut seen = Vec::new();
+                let mut hit = false;
+                for l in v.as_str().unwrap_or("").lines() {
+                    let w: Vec<&str> = l.split_whitespace().collect();
+                    if w.len() < 5 {
+                        continue;
+                    }
+                    let (m, st, u) = (w[1], w[2], w[4]);
+                    let path = u.split_once("://").and_then(|(_, r)| r.find('/').map(|i| &r[i..])).unwrap_or(u);
+                    if crate::expect::glob(&url, u) || crate::expect::glob(&url, path) {
+                        seen.push(format!("{m} {u} {st}"));
+                        if (method == "*" || m.eq_ignore_ascii_case(method))
+                            && status.as_deref().is_none_or(|s| s == st)
+                        {
+                            hit = true;
+                        }
+                    }
+                }
+                let actual = if seen.is_empty() { format!("no request to {url}") } else { seen.join(", ") };
+                (hit, actual)
+            }
+            Subject::Cookie(name) => {
+                let name = scope.word(name)?;
+                let v = self.command(&["cookies".into(), "--all".into(), "--json".into()])?;
+                let found = v.as_array().and_then(|a| {
+                    a.iter().find(|c| c.get("name").and_then(Value::as_str) == Some(name.as_str())).cloned()
+                });
+                match found {
+                    Some(c) => {
+                        let val = c.get("value").and_then(Value::as_str).unwrap_or("").to_string();
+                        (compare(&val, e.matcher, value), val)
+                    }
+                    None => (false, "no such cookie".into()),
+                }
+            }
+            Subject::Storage { area, key } => {
+                let key = scope.word(key)?;
+                match self.command(&["storage".into(), area.clone(), "get".into(), key]) {
+                    Ok(Value::String(val)) => (compare(&val, e.matcher, value), val),
+                    Ok(_) => (false, "no such key".into()),
+                    Err(err) => (false, err),
+                }
             }
             Subject::Errors => {
                 let v = self.command(&["errors".into(), "--json".into()])?;
@@ -417,6 +524,12 @@ fn describe(e: &Expect, value: &str, actual: &str, limit: Duration) -> String {
         Subject::Text(t) => format!("text {t:?}"),
         Subject::Var(v) => v.clone(),
         Subject::Errors => "no page errors".to_string(),
+        Subject::Js(c) => format!("js {c:?}"),
+        Subject::Request { method, url, status } => {
+            format!("request {method} {url}{}", status.as_ref().map(|s| format!(" status {s}")).unwrap_or_default())
+        }
+        Subject::Cookie(c) => format!("cookie {c}"),
+        Subject::Storage { area, key } => format!("storage {area} {key}"),
         Subject::Target { flags, prop } => {
             let p = match prop {
                 Prop::State(s) => s.clone(),
@@ -453,20 +566,39 @@ fn evidence_name(file: &Path, scenario: &str) -> String {
 /// Variables a scenario sees: what it saved, the run's `--var`s, the
 /// file's `set`s, then the environment.
 struct Scope {
+    /// Flow arguments, innermost last.
+    layers: Vec<BTreeMap<String, String>>,
     saved: BTreeMap<String, String>,
+    /// The scenario's data row.
+    row: BTreeMap<String, String>,
     run: BTreeMap<String, String>,
     file: BTreeMap<String, String>,
     noop: Option<String>,
+    /// Optional steps that didn't happen.
+    notes: Vec<String>,
 }
 
 impl Scope {
-    fn new(suite: &Suite, opts: &Options) -> Self {
-        Scope { saved: BTreeMap::new(), run: opts.vars.clone(), file: suite.vars.clone(), noop: None }
+    fn new(suite: &Suite, scenario: &Scenario, opts: &Options) -> Self {
+        Scope {
+            layers: Vec::new(),
+            saved: BTreeMap::new(),
+            row: scenario.vars.clone(),
+            run: opts.vars.clone(),
+            file: suite.vars.clone(),
+            noop: None,
+            notes: Vec::new(),
+        }
     }
 
+    /// A flow's arguments, then what was saved, the data row, `--var`,
+    /// the file's `set`s, the environment.
     fn lookup(&self, name: &str) -> Option<String> {
-        self.saved
-            .get(name)
+        self.layers
+            .last()
+            .and_then(|l| l.get(name))
+            .or_else(|| self.saved.get(name))
+            .or_else(|| self.row.get(name))
             .or_else(|| self.run.get(name))
             .or_else(|| self.file.get(name))
             .cloned()

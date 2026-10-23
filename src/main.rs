@@ -176,11 +176,11 @@ fn load(paths: &[PathBuf]) -> Result<Vec<suite::Suite>, String> {
             Err(e) => errors.push(format!("{}: {e}", f.display())),
         }
     }
-    if errors.is_empty() {
-        Ok(suites)
-    } else {
-        Err(errors.join("\n"))
+    if !errors.is_empty() {
+        return Err(errors.join("\n"));
     }
+    suite::resolve(&mut suites).map_err(|e| e.to_string())?;
+    Ok(suites)
 }
 
 fn main() -> ExitCode {
