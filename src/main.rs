@@ -297,7 +297,7 @@ fn run(args: Args) -> ExitCode {
                     }
                     let _ = out.write_all(text.as_bytes());
                     let _ = out.flush();
-                    results.push(r);
+                    results.push(*r);
                 }
                 Event::LaunchFailed(e) => launch_errors.push(e),
             }
@@ -356,7 +356,7 @@ fn planned(suites: &[suite::Suite], args: &Args) -> Vec<runner::Job> {
 }
 
 enum Event {
-    Done(runner::ScenarioResult),
+    Done(Box<runner::ScenarioResult>),
     LaunchFailed(String),
 }
 
@@ -397,7 +397,7 @@ fn worker(
         }
         result.retried = earlier;
         result.worker = id;
-        if tx.send(Event::Done(result)).is_err() {
+        if tx.send(Event::Done(Box::new(result))).is_err() {
             return;
         }
     }
