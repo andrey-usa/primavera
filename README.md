@@ -40,6 +40,11 @@ milestones are in agent-guidance `plans/prova.md`.
   with `--name`, `--label`, `--text`, `--placeholder`, `--testid`,
   `--selector`, `--nth`). Refs from `ax` are refused: they change between
   runs.
+- A relative path a step reads (`upload`, `state load`, `eval --file`,
+  `init-script --file`, `route --body-file`) is found next to the `.pv`
+  file, as `use` and `for each` files are, so a suite runs the same from
+  any directory. Files a step writes (`screenshot`, `state save`) land in
+  the current directory.
 - Words split like a shell's, with no expansion. `${NAME}` and
   `${NAME:-default}` come from `save`, a flow's arguments, the data row,
   `before all`, `--var`, `set`, then the environment; `$$` (or `\$` in
