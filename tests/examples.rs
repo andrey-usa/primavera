@@ -212,9 +212,8 @@ fn the_newer_subjects_and_isolation_between_scenarios() {
     }
     // Every run of a scenario downloads into a directory of its own: the
     // same file name each time, not `report-2026 (2).csv`.
-    let (code, out) = primavera(&[
-        "run", "tests/fixtures/m1.pv", "--base-url", &site.1, "--grep", "Subjects", "--repeat", "3", "--workers", "2",
-    ]);
+    let repeat = ["--grep", "Subjects", "--repeat", "3", "--workers", "2"];
+    let (code, out) = primavera(&[&["run", "tests/fixtures/m1.pv", "--base-url", &site.1][..], &repeat].concat());
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("3 passed, 0 failed"), "{out}");
 }
