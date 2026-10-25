@@ -38,7 +38,8 @@ Status: pre-release. Everything below works in this build.
   `check`, `hover`, `scroll`, `upload`, `wait`, `eval`, `set`, `route`,
   `state load`, and the rest. Targets use navigera's locators (`--role`
   with `--name`, `--label`, `--text`, `--placeholder`, `--testid`,
-  `--selector`, `--nth`). Refs from `ax` (`click 12`) are an error: they
+  `--selector`, `--near <text>` for the one in the card or row that shows
+  the text, `--nth`). Refs from `ax` (`click 12`) are an error: they
   change between runs. `check --label Terms` ticks a box; `check
   "<question>"` with no locator asks navigera a yes/no question about
   the page (a model call).

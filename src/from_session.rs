@@ -57,6 +57,7 @@ fn flags(t: &TargetArgs, locators: &Value) -> Result<Vec<String>, String> {
     add("--placeholder", &t.placeholder);
     add("--text", &t.text);
     add("--selector", &t.selector);
+    add("--near", &t.near);
     add("--frame", &t.frame);
     if let Some(n) = t.nth {
         out.extend(["--nth".into(), n.to_string()]);

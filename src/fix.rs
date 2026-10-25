@@ -16,7 +16,8 @@ const LAST_RUN: &str = ".primavera/last-run.json";
 
 /// The flags that say which element a step acts on (`--frame` stays: it
 /// says where to look, not what).
-const LOCATOR: &[&str] = &["--selector", "--text", "--role", "--name", "--label", "--placeholder", "--testid", "--nth"];
+const LOCATOR: &[&str] =
+    &["--selector", "--text", "--role", "--name", "--label", "--placeholder", "--testid", "--near", "--nth"];
 
 /// Keep the run's failures and their suggestions for `fix`.
 pub fn save(results: &[ScenarioResult]) {
