@@ -6,6 +6,7 @@ mod axtree;
 mod config;
 mod expect;
 mod fix;
+mod from_session;
 mod gherkin;
 mod http;
 mod nearest;
@@ -36,6 +37,9 @@ usage:
   primavera trace <dir> [<line>]                a recorded trace (--trace): every step, or one in full
   primavera fix [<file>:<line>] [--use <n>] [--all [--min <p>]]
                                                 put a suggestion of the last run (nearest on the page) into the failing step
+  primavera navigera <command…>                 navigera's commands, built in (`primavera navigera -s work goto <url>`)
+  primavera from-session <name> [--scenario <s>] [--out <f.pv>]
+                                                what a navigera session did, as a scenario (refs as locators)
   primavera skill                               the agent skill (the format and commands, for an AI agent)
   primavera --version
 
@@ -340,10 +344,26 @@ fn load(paths: &[PathBuf]) -> Result<Vec<suite::Suite>, String> {
 }
 
 fn main() -> ExitCode {
-    // `fix` takes its own words.
-    if std::env::args().nth(1).as_deref() == Some("fix") {
+    // navigera's own commands, for exploring a page before writing the
+    // test (`primavera navigera -s work goto …`); a session they start is
+    // served by this executable again (`--session <name> …` first).
+    let first = std::env::args().nth(1);
+    if first.as_deref() == Some("navigera") {
+        return navigera::cli::main(std::env::args().take(1).chain(std::env::args().skip(2)));
+    }
+    if first.as_deref().is_some_and(|a| a == "--session" || a.starts_with("--session=")) {
+        return navigera::cli::main(std::env::args());
+    }
+    // `fix` and `from-session` take their own words.
+    type Own = fn(&[String]) -> Result<String, String>;
+    let own: Option<Own> = match std::env::args().nth(1).as_deref() {
+        Some("fix") => Some(fix::main),
+        Some("from-session") => Some(from_session::main),
+        _ => None,
+    };
+    if let Some(main) = own {
         let words: Vec<String> = std::env::args().skip(2).collect();
-        return match fix::main(&words) {
+        return match main(&words) {
             Ok(text) => {
                 print!("{text}");
                 ExitCode::SUCCESS

@@ -104,3 +104,19 @@ locators (paste one in), and whether the click before changed nothing on
 the page (the page may not have been ready: add an `expect` for what shows
 it is ready, before the click). Open the page with navigera to look:
 `navigera -s look start && navigera -s look goto <url> && navigera -s look ax`.
+
+## From exploring to a test
+
+Explore with the built-in navigera, then let primavera write what you did:
+
+```
+primavera navigera -s work start
+primavera navigera -s work goto https://shop.test/login
+primavera navigera -s work ax            # refs
+primavera navigera -s work click 12      # act on refs as usual
+primavera from-session work --out tests/login.pv   # refs become locators
+primavera navigera -s work quit
+```
+
+Then read `tests/login.pv`: keep the proposed `expect url` lines that
+matter, add the `expect` the test is for, and run it.

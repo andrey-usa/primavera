@@ -39,7 +39,7 @@ pub fn save(results: &[ScenarioResult]) {
 }
 
 /// A word as the tokenizer reads it back.
-fn quote(w: &str) -> String {
+pub fn quote(w: &str) -> String {
     if !w.is_empty() && !w.chars().any(|c| c.is_whitespace() || "'\"\\".contains(c)) {
         return w.to_string();
     }

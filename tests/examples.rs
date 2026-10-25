@@ -428,6 +428,56 @@ fn element_screenshots_find_their_element_in_frames_and_scroll_containers() {
 }
 
 #[test]
+fn a_navigera_session_becomes_a_scenario_that_passes() {
+    let (Some(_turn), Some(site)) = (chrome(), site()) else { return };
+    let dir = std::env::temp_dir().join(format!("pv-from-session-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let name = dir.join("work.sock").display().to_string();
+    let nv = |args: &[&str]| -> serde_json::Value {
+        let out = Command::new(env!("CARGO_BIN_EXE_primavera"))
+            .args(["navigera", "--session", &name])
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .expect("primavera navigera");
+        let text = String::from_utf8_lossy(&out.stdout);
+        let v: serde_json::Value = serde_json::from_str(text.trim()).unwrap_or_else(|_| panic!("{args:?}: {text}"));
+        assert!(v["ok"] == true, "{args:?}: {v}");
+        v["result"].clone()
+    };
+    // What an agent does: look, act on refs.
+    nv(&["start"]);
+    nv(&["goto", &format!("{}/login", site.1)]);
+    let tree = nv(&["ax"]).as_str().unwrap().to_string();
+    let r = |text: &str| -> String {
+        let line = tree.lines().find(|l| l.contains(text)).unwrap_or_else(|| panic!("{text:?} in\n{tree}"));
+        line.split("ref=").nth(1).unwrap().split(|c: char| !c.is_ascii_digit()).next().unwrap().to_string()
+    };
+    nv(&["click", &r("button \"Accept all\"")]);
+    nv(&["fill", &r("textbox \"Email\""), "ada@example.com"]);
+    nv(&["get", "value", "--label", "Email"]);
+    nv(&["click", &r("link \"Shop\"")]);
+    let out = Command::new(env!("CARGO_BIN_EXE_primavera"))
+        .args(["from-session", &name, "--scenario", "Shops"])
+        .output()
+        .unwrap();
+    nv(&["quit"]);
+    let pv = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(out.status.success(), "{pv}{}", String::from_utf8_lossy(&out.stderr));
+    assert!(pv.contains("scenario \"Shops\"\n  goto /login\n"), "{pv}");
+    assert!(pv.contains("click --role button --name \"Accept all\"\n"), "{pv}");
+    assert!(pv.contains("fill --role textbox --name Email ada@example.com\n"), "{pv}");
+    assert!(pv.contains("click --role link --name Shop\n  expect url ends-with /shop\n"), "{pv}");
+    assert!(!pv.contains("get value") && !pv.contains("left out"), "reads stay out, every ref found again: {pv}");
+    // And it runs, from a fresh browser.
+    let file = dir.join("shops.pv");
+    std::fs::write(&file, &pv).unwrap();
+    let (code, text) = primavera(&["run", file.to_str().unwrap(), "--base-url", &site.1]);
+    assert_eq!(code, 0, "{pv}\n{text}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn a_trace_records_each_step_and_reads_back() {
     let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
     let dir = std::env::temp_dir().join(format!("pv-trace-{}", std::process::id()));

@@ -230,6 +230,8 @@ primavera lint [<file.pv|dir>...]
 primavera list [<file.pv|dir>...]
 primavera trace <dir> [<line>]
 primavera fix [<file>:<line>] [--use <n>] [--all [--min <p>]]
+primavera navigera <command…>
+primavera from-session <name> [--scenario <name>] [--out <file.pv>]
 ```
 
 - Every scenario starts in a fresh browser context (navigera `reset
@@ -295,6 +297,20 @@ primavera fix [<file>:<line>] [--use <n>] [--all [--min <p>]]
   0.6]` takes each failure's first suggestion that scored that much, and
   plain `primavera fix` lists them. The failure block prints the command.
   A `.feature` step is left alone: change its `step` block instead.
+- `primavera navigera …` is navigera itself, built in: explore a page the
+  way an agent does (`primavera navigera -s work start`, `goto`, `ax`,
+  `click 12`, `fill 15 ada@example.com`) with no second program to
+  install. `primavera from-session work` then writes what that session did
+  as a scenario: each action once (reads, waits and `eval` left out), every
+  ref replaced by the most stable locator that found its element again just
+  before the action (test id, role and name, label, placeholder, text, CSS;
+  navigera's `locate`, each checked on the page), `base` from the first
+  `goto`, an `expect url` where an action moved the page, and a value typed
+  into a password field as `${secret:PASSWORD}`. What it can't keep (a
+  mouse at coordinates, a ref no locator found again) is a `# left out:`
+  line. Read it through, keep the expects that matter, add the ones the
+  test is for. A session started by a plain `navigera` works too when that
+  navigera has `history`.
 - `--pause-on-failure` stops at a failure with the browser as the failure
   left it and prints how to look at that very tab (`navigera -s pv start
   --attach ws://…/devtools/page/…`, then `navigera -s pv ax`); Enter goes
