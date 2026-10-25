@@ -106,12 +106,33 @@ impl Drop for Running {
         {
             let tree: Vec<String> =
                 std::iter::once(child.id()).chain(descendants(child.id())).map(|p| p.to_string()).collect();
+            // Stopped means every process of it gone, not only the shell: one
+            // below it can hold the port a moment after the shell exits.
+            let gone = |pid: &str| match Command::new("ps").args(["-o", "stat=", "-p", pid]).output() {
+                Ok(o) => {
+                    let stat = String::from_utf8_lossy(&o.stdout);
+                    stat.trim().is_empty() || stat.trim().starts_with('Z')
+                }
+                Err(_) => true,
+            };
+            let mut stopped = |within: Duration| {
+                let deadline = Instant::now() + within;
+                loop {
+                    let reaped = child.try_wait().ok().flatten().is_some();
+                    if reaped && tree[1..].iter().all(|p| gone(p)) {
+                        return true;
+                    }
+                    if Instant::now() >= deadline {
+                        return false;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            };
             let _ = Command::new("kill").arg("-TERM").args(&tree).output();
-            let deadline = Instant::now() + Duration::from_secs(5);
-            while Instant::now() < deadline && child.try_wait().ok().flatten().is_none() {
-                std::thread::sleep(Duration::from_millis(50));
+            if !stopped(Duration::from_secs(5)) {
+                let _ = Command::new("kill").arg("-KILL").args(&tree).stderr(Stdio::null()).output();
+                stopped(Duration::from_secs(2));
             }
-            let _ = Command::new("kill").arg("-KILL").args(&tree).stderr(Stdio::null()).output();
         }
         let _ = child.kill();
         let _ = child.wait();
