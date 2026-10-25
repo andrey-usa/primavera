@@ -322,7 +322,14 @@ pub fn steps(history: &[Value], base: Option<&str>, mut at: Option<String>) -> (
     let mut steps = String::new();
     let mut secrets: Vec<String> = Vec::new();
     let mut said = &Value::Null;
-    for e in history {
+    for (i, e) in history.iter().enumerate() {
+        // A click that changed nothing, then the same click again (the page
+        // wasn't ready for the first): the second is the step.
+        if e["no_effect"] == true
+            && history.get(i + 1).is_some_and(|n| n["command"] == e["command"] && n["locators"] == e["locators"])
+        {
+            continue;
+        }
         let Ok(c) = serde_json::from_value::<Command>(e["command"].clone()) else {
             steps.push_str(&format!("  # (an action this primavera can't read: {})\n", e["command"]));
             continue;
@@ -418,6 +425,8 @@ mod tests {
         let role = |r: &str, n: &str| json!([{"kind": "role", "flags": ["--role", r, "--name", n]}]);
         let h = vec![
             json!({"command": {"op": "goto", "url": "http://127.0.0.1:8000/login"}, "url": "http://127.0.0.1:8000/login"}),
+            // Clicked before its handler was there, then again: one step.
+            json!({"command": {"op": "click", "ref": 39}, "locators": role("button", "Accept all"), "url": "http://127.0.0.1:8000/login", "no_effect": true}),
             json!({"command": {"op": "click", "ref": 39}, "locators": role("button", "Accept all"), "url": "http://127.0.0.1:8000/login"}),
             json!({"command": {"op": "fill", "ref": 29, "value": "ada@example.com"}, "locators": role("textbox", "Email"), "url": "http://127.0.0.1:8000/login"}),
             json!({"command": {"op": "fill", "label": "Password", "value": "hunter2"}, "url": "http://127.0.0.1:8000/login"}),
