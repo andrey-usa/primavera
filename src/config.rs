@@ -51,6 +51,8 @@ pub struct Profile {
     pub headed: Option<bool>,
     /// `on-failure`, `all` or `off`.
     pub trace: Option<String>,
+    /// compara's reports for `expect download … compare`: html, json, rows.
+    pub compare_report: Option<Vec<String>>,
     #[serde(default)]
     pub vars: BTreeMap<String, String>,
     pub server: Option<Server>,
@@ -105,6 +107,7 @@ impl Profile {
             evidence,
             headed,
             trace,
+            compare_report,
             server
         );
         self.vars.extend(over.vars);
@@ -139,6 +142,10 @@ impl Profile {
         flag("--chromium", self.chromium.clone());
         flag("--evidence", self.evidence.clone());
         flag("--trace", self.trace.clone());
+        flag(
+            "--compare-report",
+            self.compare_report.as_ref().map(|k| if k.is_empty() { "none".into() } else { k.join(",") }),
+        );
         for r in self.reporters.iter().flatten() {
             flag("--reporter", Some(r.clone()));
         }
@@ -259,6 +266,9 @@ region = "eu"
         let e = parse(TEXT, Some("prod")).unwrap_err();
         assert!(e.contains("no profile [env.prod] (there are: staging)"), "{e}");
         assert!(parse("wokers = 2", None).unwrap_err().contains("unknown field"));
+        let c = parse("compare_report = [\"json\", \"rows\"]", None).unwrap();
+        assert_eq!(c.words().join(" "), "--compare-report json,rows");
+        assert_eq!(parse("compare_report = []", None).unwrap().words().join(" "), "--compare-report none");
     }
 
     #[test]

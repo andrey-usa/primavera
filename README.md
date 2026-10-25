@@ -145,7 +145,7 @@ milestones are in agent-guidance `plans/prova.md`.
 | `cookie <name>` [+ a comparison], `no cookie <name>`, `cookie <name> absent` | a cookie of the scenario's browser context |
 | `storage local\|session <key>` [+ a comparison \| `absent`] | Local or Session Storage |
 | `download <file glob>`, `no download …` | a finished download (then `${download.path}`, `${download.name}`: the latest match). Each scenario's downloads go to a directory of its own beside its evidence (`.primavera/runs/<time>/<scenario>/downloads`, kept only when something came), so a name never carries over from another scenario; a second file of the same name in one scenario arrives as `name (2).ext` |
-| `download <file glob> compare <expected file> --key <columns>` [compara flags…] | the download is the same table as the expected file beside the `.pv` ([compara](https://github.com/andrey-usa/compara) on the PATH, or `PRIMAVERA_COMPARA`): CSV, NDJSON or Parquet, either side; compara's flags (`-i`, `--trim`, `--tolerance`) pass through. A difference fails the step with compara's counts and its HTML report in the evidence directory |
+| `download <file glob> compare <expected file> --key <columns>` [compara flags…] | the download is the same table as the expected file beside the `.pv` ([compara](https://github.com/andrey-usa/compara) on the PATH, or `PRIMAVERA_COMPARA`): CSV, NDJSON or Parquet, either side; compara's flags (`-i`, `--trim`, `--tolerance`) pass through. A difference fails the step with compara's counts and the reports it kept beside the scenario's downloads: `--report html,json,rows` (the HTML report, the JSON summary of counts and column statistics, CSVs of the changed, added and removed rows) or `none`; the run's `--compare-report` (`compare_report` in `primavera.toml`, default `html`) when the step doesn't say, and compara's own `-o`, `--json` or `--export-dir` win |
 | `console` + a comparison, `no console "<t>"` | a console message (any level) |
 | `no errors` | no page exceptions or console errors |
 | `exit` [`is`] `<n>`, `stdout`/`stderr` + a comparison | what the last `exec` gave |
@@ -222,7 +222,7 @@ primavera run [<file.pv|file.feature|dir>...] [--base-url <url>] [--var k=v] [--
               [--reporter console|jsonl|github] [--junit <file>] [--cucumber <file>] [--allure <dir>] [--html <file>] [--json]
               [--timeout-ms <ms>] [--wait-ms <ms>] [--headed] [--chromium <path>]
               [--secrets <file>] [--pause-on-failure] [--trace on-failure|all] [--update-screenshots]
-              [--config <file>] [--env <name>]
+              [--compare-report html,json,rows|none] [--config <file>] [--env <name>]
 primavera lint [<file.pv|dir>...]
 primavera list [<file.pv|dir>...]
 primavera trace <dir> [<line>]

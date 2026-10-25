@@ -65,6 +65,9 @@ pub enum Subject {
         glob: String,
         expected: String,
         flags: Vec<String>,
+        /// `--report html,json,rows` (or `none`): what compara writes to the
+        /// evidence directory; the run's `--compare-report` when not given.
+        report: Option<Vec<String>>,
     },
     /// A console message (any level) compared: `console contains "x"`.
     Console,
@@ -474,15 +477,20 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
         }
         "download" => match words.len() {
             2 => (Subject::Download(words[1].clone()), Matcher::Holds, String::new()),
-            n if n >= 4 && words[2] == "compare" => (
-                Subject::DownloadCompare {
-                    glob: words[1].clone(),
-                    expected: words[3].clone(),
-                    flags: words[4..].to_vec(),
-                },
-                Matcher::Holds,
-                String::new(),
-            ),
+            n if n >= 4 && words[2] == "compare" => {
+                let mut flags = words[4..].to_vec();
+                let mut report = None;
+                if let Some(i) = flags.iter().position(|f| f == "--report") {
+                    let v = flags.get(i + 1).ok_or("--report takes html, json, rows (comma-separated) or none")?;
+                    report = Some(report_kinds(v)?);
+                    flags.drain(i..i + 2);
+                }
+                (
+                    Subject::DownloadCompare { glob: words[1].clone(), expected: words[3].clone(), flags, report },
+                    Matcher::Holds,
+                    String::new(),
+                )
+            }
             _ => {
                 return Err(
                     "expect download <file name glob> [compare <expected file> --key <columns> [compara flags…]]"
@@ -583,6 +591,16 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
         }
     };
     Ok(Expect { negate, subject, matcher, value, timeout_ms, soft })
+}
+
+/// `html,json,rows` or `none`: which of compara's reports to keep.
+pub fn report_kinds(v: &str) -> Result<Vec<String>, String> {
+    let kinds: Vec<String> =
+        v.split(',').map(|r| r.trim().to_string()).filter(|r| r != "none" && !r.is_empty()).collect();
+    match kinds.iter().find(|r| !matches!(r.as_str(), "html" | "json" | "rows")) {
+        Some(bad) => Err(format!("a compare report is html, json or rows (comma-separated), or none; not {bad:?}")),
+        None => Ok(kinds),
+    }
 }
 
 /// `--within <target flags>` after `text "<t>"`: where to look.

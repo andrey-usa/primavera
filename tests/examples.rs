@@ -428,7 +428,9 @@ fn a_download_is_compared_with_the_expected_file() {
     let scenario = |name: &str, file: &str| {
         format!("scenario \"{name}\"\n  goto /m1\n  click --selector \"#dl\"\n  expect download \"report-*.csv\" compare {file} --key id\n")
     };
-    std::fs::write(&pv, scenario("The same", "expected.csv") + &scenario("Not the same", "other.csv")).unwrap();
+    let rows = "scenario \"Rows and a summary\"\n  goto /m1\n  click --selector \"#dl\"\n  \
+                expect download \"report-*.csv\" compare other.csv --key id --report json,rows\n";
+    std::fs::write(&pv, scenario("The same", "expected.csv") + &scenario("Not the same", "other.csv") + rows).unwrap();
     let ev = dir.join("ev");
     let out = Command::new(env!("CARGO_BIN_EXE_primavera"))
         .args(["run", pv.to_str().unwrap(), "--base-url", &site.1, "--evidence", ev.to_str().unwrap()])
@@ -436,9 +438,22 @@ fn a_download_is_compared_with_the_expected_file() {
         .unwrap();
     let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(1), "{text}");
-    assert!(text.contains("1 passed, 1 failed"), "{text}");
-    assert!(text.contains("differs from") && text.contains("changed 1"), "{text}");
-    assert!(std::fs::read_dir(&ev).unwrap().any(|e| e.unwrap().path().to_string_lossy().ends_with("-compare.html")));
+    assert!(text.contains("1 passed, 2 failed"), "{text}");
+    assert!(text.contains("differs from") && text.contains("changed 1") && text.contains("the report"), "{text}");
+    // Each scenario's reports are beside its downloads.
+    let names: Vec<String> = std::fs::read_dir(&ev)
+        .unwrap()
+        .flat_map(|d| std::fs::read_dir(d.unwrap().path()).into_iter().flatten())
+        .map(|e| e.unwrap().path().strip_prefix(&ev).unwrap().display().to_string())
+        .collect();
+    assert!(names.iter().any(|n| n.ends_with("-compare.html")), "{names:?}");
+    // The JSON summary and the rows, when asked for.
+    assert!(text.contains("the summary") && text.contains("the rows"), "{text}");
+    let rows = names.iter().find(|n| n.ends_with("-compare-rows")).expect("a rows directory");
+    assert!(std::fs::read_to_string(ev.join(rows).join("changed.csv")).unwrap().contains("Ada,Bob"));
+    let json = names.iter().find(|n| n.ends_with("-compare.json")).expect("a summary");
+    let summary: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(ev.join(json)).unwrap()).unwrap();
+    assert_eq!(summary["counts"]["changed"], 1);
     std::fs::remove_dir_all(&dir).ok();
 }
 

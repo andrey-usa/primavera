@@ -59,6 +59,8 @@ pub struct Options {
     pub update_shots: bool,
     /// `--trace`: record what each step saw.
     pub trace: crate::trace::Trace,
+    /// `--compare-report`: what compara keeps when a step doesn't say.
+    pub compare_report: Vec<String>,
 }
 
 /// One step that ran, for the HTML report.
@@ -936,26 +938,47 @@ impl Runner {
     }
 
     /// compara on a downloaded file and the expected one: nothing when they
-    /// are the same, else its counts and the HTML report it wrote.
-    fn compara(&self, got: &str, expected: &str, flags: &[String]) -> Result<(), String> {
+    /// are the same, else its counts and what it wrote to the evidence
+    /// directory (`report`: html, json, rows), each unless the step's own
+    /// compara flags already say where.
+    fn compara(&self, got: &str, expected: &str, flags: &[String], report: &[String]) -> Result<(), String> {
         let exe = std::env::var("PRIMAVERA_COMPARA").unwrap_or_else(|_| "compara".into());
         let stem = Path::new(got).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let _ = std::fs::create_dir_all(&self.opts.evidence);
-        let report = self.opts.evidence.join(format!("{stem}-compare.html"));
-        let out = std::process::Command::new(&exe)
-            .args(["compare", got, expected])
-            .args(flags)
-            .arg("-o")
-            .arg(&report)
-            .output()
-            .map_err(|e| {
-                format!("compare needs compara ({exe}: {e}; cargo install compara, npm i -g compara or pip install compara)")
-            })?;
+        // Beside the scenario's downloads (`<evidence>/<scenario>/downloads/`).
+        let dir = Path::new(got)
+            .parent()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| self.opts.evidence.clone());
+        let _ = std::fs::create_dir_all(&dir);
+        let given = |names: &[&str]| flags.iter().any(|f| names.contains(&f.as_str()));
+        let mut outputs: Vec<(&str, &str, PathBuf)> = Vec::new();
+        for (kind, flag, names, what, file) in [
+            ("html", "-o", &["-o", "--out"][..], "the report", format!("{stem}-compare.html")),
+            ("json", "--json", &["--json"][..], "the summary", format!("{stem}-compare.json")),
+            ("rows", "--export-dir", &["--export-dir"][..], "the rows", format!("{stem}-compare-rows")),
+        ] {
+            if report.iter().any(|r| r == kind) && !given(names) {
+                outputs.push((flag, what, dir.join(file)));
+            }
+        }
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.args(["compare", got, expected]).args(flags);
+        for (flag, _, path) in &outputs {
+            cmd.arg(flag).arg(path);
+        }
+        let out = cmd.output().map_err(|e| {
+            format!(
+                "compare needs compara ({exe}: {e}; cargo install compara, npm i -g compara or pip install compara)"
+            )
+        })?;
         let said = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
         let first = said.lines().find(|l| !l.trim().is_empty() && !l.starts_with("Report:")).unwrap_or("").trim();
+        let written: Vec<String> = outputs.iter().map(|(_, what, path)| format!("{what} {}", path.display())).collect();
+        let written = if written.is_empty() { String::new() } else { format!("; {}", written.join(", ")) };
         match out.status.code() {
             Some(0) => Ok(()),
-            Some(1) => Err(format!("{got} differs from {expected}: {first}; the report {}", report.display())),
+            Some(1) => Err(format!("{got} differs from {expected}: {first}{written}")),
             _ => Err(format!("compara on {got} and {expected}: {first}")),
         }
     }
@@ -1144,15 +1167,18 @@ impl Runner {
                     },
                 }
             }
-            Subject::DownloadCompare { glob, expected, flags } => match self.download_done(&scope.word(glob)?)? {
-                (true, path) => {
-                    let expected = scope.word(expected)?;
-                    let flags = scope.words(flags)?;
-                    self.compara(&path, &expected, &flags)?;
-                    (true, path)
+            Subject::DownloadCompare { glob, expected, flags, report } => {
+                match self.download_done(&scope.word(glob)?)? {
+                    (true, path) => {
+                        let expected = scope.word(expected)?;
+                        let flags = scope.words(flags)?;
+                        let report = report.as_ref().unwrap_or(&self.opts.compare_report).clone();
+                        self.compara(&path, &expected, &flags, &report)?;
+                        (true, path)
+                    }
+                    seen => seen,
                 }
-                seen => seen,
-            },
+            }
             Subject::Download(glob) => self.download_done(&scope.word(glob)?)?,
             Subject::Console => {
                 let v = self.command(&["console".into(), "--json".into()])?;

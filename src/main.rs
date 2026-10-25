@@ -57,6 +57,7 @@ run options:
   --config <file>       settings, a [server] and [env.<name>] profiles (default: ./primavera.toml)
   --env <name>          the config's [env.<name>] profile on top of the rest
   --update-screenshots  a screenshot that differs from its baseline (or has none) becomes it
+  --compare-report <k>  what `expect download … compare` keeps: html, json, rows (comma-separated) or none (default html)
   --trace <when>        on-failure or all: each step's page, console and requests in trace.jsonl
                         beside the screenshot (and ax.txt at a failure); read it with `primavera trace`
   --junit <file>        also write JUnit XML
@@ -140,6 +141,7 @@ fn parse_args() -> Result<Args, String> {
         auth: Default::default(),
         update_shots: false,
         trace: Default::default(),
+        compare_report: vec!["html".into()],
     };
     let mut junit = None;
     let mut cucumber = None;
@@ -197,6 +199,7 @@ fn parse_args() -> Result<Args, String> {
             "--headed" => opts.headed = true,
             "--update-screenshots" => opts.update_shots = true,
             "--trace" => opts.trace = trace::Trace::parse(&val("--trace")?)?,
+            "--compare-report" => opts.compare_report = expect::report_kinds(&val("--compare-report")?)?,
             "--chromium" => opts.chromium = Some(val("--chromium")?),
             "--evidence" => opts.evidence = PathBuf::from(val("--evidence")?),
             "--workers" | "-j" => {
