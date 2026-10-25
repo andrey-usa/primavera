@@ -478,6 +478,60 @@ fn a_navigera_session_becomes_a_scenario_that_passes() {
 }
 
 #[test]
+fn over_mcp_an_agent_explores_writes_the_test_and_runs_it() {
+    use std::io::Write as _;
+    let (Some(_turn), Some(site)) = (chrome(), site()) else { return };
+    let dir = std::env::temp_dir().join(format!("pv-mcp-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_primavera"))
+        .arg("mcp")
+        .current_dir(&dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut id = 0;
+    let mut rpc = |method: &str, params: serde_json::Value| -> serde_json::Value {
+        id += 1;
+        let msg = serde_json::json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+        writeln!(stdin, "{msg}").unwrap();
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        serde_json::from_str(&line).unwrap_or_else(|_| panic!("{method}: {line}"))
+    };
+    let text = |r: &serde_json::Value| r["result"]["content"][0]["text"].as_str().unwrap_or("").to_string();
+    let init = rpc("initialize", serde_json::json!({"protocolVersion": "2025-06-18"}));
+    assert_eq!(init["result"]["serverInfo"]["name"], "primavera", "{init}");
+    rpc(
+        "tools/call",
+        serde_json::json!({"name": "browser_navigate", "arguments": {"url": format!("{}/login", site.1)}}),
+    );
+    let tree = text(&rpc("tools/call", serde_json::json!({"name": "browser_snapshot", "arguments": {}})));
+    let line = tree.lines().find(|l| l.contains("button \"Accept all\"")).unwrap_or_else(|| panic!("{tree}"));
+    let r: u64 =
+        line.split("ref=").nth(1).unwrap().split(|c: char| !c.is_ascii_digit()).next().unwrap().parse().unwrap();
+    rpc("tools/call", serde_json::json!({"name": "browser_click", "arguments": {"ref": r}}));
+    let wrote = rpc(
+        "tools/call",
+        serde_json::json!({"name": "primavera_from_session", "arguments": {"scenario": "Consents", "out": "consent.pv"}}),
+    );
+    assert!(text(&wrote).contains("click --role button --name \"Accept all\""), "{wrote}");
+    let ran = rpc(
+        "tools/call",
+        serde_json::json!({"name": "primavera_run", "arguments": {"paths": ["consent.pv"], "base_url": site.1}}),
+    );
+    assert_eq!(ran["result"]["isError"], false, "{}", text(&ran));
+    assert!(text(&ran).ends_with("exit 0"), "{}", text(&ran));
+    let failure = rpc("tools/call", serde_json::json!({"name": "primavera_failure", "arguments": {}}));
+    assert!(text(&failure).contains("no failures"), "{failure}");
+    drop(stdin);
+    let _ = child.wait();
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn a_trace_records_each_step_and_reads_back() {
     let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
     let dir = std::env::temp_dir().join(format!("pv-trace-{}", std::process::id()));

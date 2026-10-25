@@ -11,7 +11,7 @@ use serde_json::Value;
 use crate::fix::quote;
 
 /// The session's history, oldest first.
-fn history(session: &str) -> Result<Vec<Value>, String> {
+pub fn history(session: &str) -> Result<Vec<Value>, String> {
     let mut out = Vec::new();
     navigera::session::client(&SessionConfig::default(), session, &Command::History { clear: false }, &mut out);
     let text = String::from_utf8_lossy(&out);

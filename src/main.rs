@@ -9,6 +9,7 @@ mod fix;
 mod from_session;
 mod gherkin;
 mod http;
+mod mcp;
 mod nearest;
 mod report;
 mod runner;
@@ -40,6 +41,7 @@ usage:
   primavera navigera <command…>                 navigera's commands, built in (`primavera navigera -s work goto <url>`)
   primavera from-session <name> [--scenario <s>] [--out <f.pv>]
                                                 what a navigera session did, as a scenario (refs as locators)
+  primavera mcp [--headed]                      an MCP server: navigera's browser tools and primavera_from_session/run/failure/fix
   primavera skill                               the agent skill (the format and commands, for an AI agent)
   primavera --version
 
@@ -353,6 +355,26 @@ fn main() -> ExitCode {
     }
     if first.as_deref().is_some_and(|a| a == "--session" || a.starts_with("--session=")) {
         return navigera::cli::main(std::env::args());
+    }
+    // The test loop over MCP: navigera's browser tools and primavera's own.
+    // Flags after `mcp` are navigera's (`--headed`, `--chromium <path>`).
+    if first.as_deref() == Some("mcp") {
+        let args = std::iter::once("navigera".to_string()).chain(std::env::args().skip(2)).chain(["mcp".to_string()]);
+        let config = match navigera::protocol::parse_args(args) {
+            Ok(parsed) => parsed.config,
+            Err(e) => {
+                eprintln!(
+                    "primavera mcp: {}",
+                    match e {
+                        navigera::protocol::ArgsError::Help(t) | navigera::protocol::ArgsError::Invalid(t) => t,
+                    }
+                );
+                return ExitCode::from(2);
+            }
+        };
+        let stdin = std::io::stdin();
+        let stdout = std::io::stdout();
+        return mcp::serve(&config, &mut stdin.lock(), &mut stdout.lock());
     }
     // `fix` and `from-session` take their own words.
     type Own = fn(&[String]) -> Result<String, String>;

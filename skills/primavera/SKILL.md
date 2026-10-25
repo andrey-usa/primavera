@@ -120,3 +120,7 @@ primavera navigera -s work quit
 
 Then read `tests/login.pv`: keep the proposed `expect url` lines that
 matter, add the `expect` the test is for, and run it.
+
+Over MCP (`primavera mcp`): the browser tools, then `primavera_from_session`
+with `out`, `primavera_run`, and on a failure `primavera_failure` and
+`primavera_fix`.

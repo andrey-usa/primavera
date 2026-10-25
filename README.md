@@ -232,6 +232,7 @@ primavera trace <dir> [<line>]
 primavera fix [<file>:<line>] [--use <n>] [--all [--min <p>]]
 primavera navigera <command…>
 primavera from-session <name> [--scenario <name>] [--out <file.pv>]
+primavera mcp [--headed] [--chromium <path>]
 ```
 
 - Every scenario starts in a fresh browser context (navigera `reset
@@ -311,6 +312,13 @@ primavera from-session <name> [--scenario <name>] [--out <file.pv>]
   line. Read it through, keep the expects that matter, add the ones the
   test is for. A session started by a plain `navigera` works too when that
   navigera has `history`.
+- `primavera mcp` is the same loop for an agent over MCP (stdio): navigera's
+  browser tools (`browser_navigate`, `browser_snapshot`, `browser_click`,
+  … one browser for all of them) beside `primavera_from_session` (what
+  those tools did, as a scenario; `out` writes it), `primavera_run`,
+  `primavera_list`, `primavera_lint`, `primavera_failure` (the last run's
+  failures with the nearest elements) and `primavera_fix`. Register it as
+  `{"command": "primavera", "args": ["mcp"]}`.
 - `--pause-on-failure` stops at a failure with the browser as the failure
   left it and prints how to look at that very tab (`navigera -s pv start
   --attach ws://…/devtools/page/…`, then `navigera -s pv ax`); Enter goes

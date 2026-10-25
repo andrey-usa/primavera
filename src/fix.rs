@@ -23,12 +23,15 @@ pub fn save(results: &[ScenarioResult]) {
     let failures: Vec<Value> = results
         .iter()
         .filter_map(|r| r.failure.as_ref().map(|f| (r, f)))
-        .filter(|(_, f)| !f.nearest.is_empty())
         .map(|(r, f)| {
             json!({
                 "file": std::path::absolute(&r.file).unwrap_or_else(|_| r.file.clone()),
+                "scenario": r.name,
                 "line": f.line,
                 "text": f.text,
+                "message": f.message,
+                "hint": f.hint,
+                "screenshot": f.screenshot,
                 "nearest": f.nearest.iter().map(|(e, l, p)| json!({"element": e, "locator": l, "p": p})).collect::<Vec<_>>(),
             })
         })
@@ -78,9 +81,15 @@ struct Failure {
     nearest: Vec<(String, String, f64)>,
 }
 
-fn load() -> Result<Vec<Failure>, String> {
+/// The last run's failures as it kept them (`primavera_failure`).
+pub fn last_run() -> Result<Value, String> {
     let text = std::fs::read_to_string(LAST_RUN).map_err(|_| format!("no {LAST_RUN}: run the tests first"))?;
-    let v: Value = serde_json::from_str(&text).map_err(|e| format!("{LAST_RUN}: {e}"))?;
+    serde_json::from_str(&text).map_err(|e| format!("{LAST_RUN}: {e}"))
+}
+
+/// The failures that have suggestions.
+fn load() -> Result<Vec<Failure>, String> {
+    let v = last_run()?;
     Ok(v["failures"]
         .as_array()
         .into_iter()
@@ -102,6 +111,7 @@ fn load() -> Result<Vec<Failure>, String> {
                 })
                 .collect(),
         })
+        .filter(|f| !f.nearest.is_empty())
         .collect())
 }
 
