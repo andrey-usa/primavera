@@ -208,8 +208,8 @@ a file error that says how to write it. Data tables and doc strings under a
 step aren't supported yet.
 
 `--cucumber <file>` writes Cucumber JSON for the `.feature` files, step by
-step (passed, failed, skipped, with times), for test-management importers
-and Allure; `--junit`, `--html` and the console report them like any
+step (passed, failed, skipped, with times), for test-management importers;
+`--junit`, `--html`, `--allure` and the console report them like any
 scenario.
 
 ## Running
@@ -218,7 +218,7 @@ scenario.
 primavera run [<file.pv|file.feature|dir>...] [--base-url <url>] [--var k=v] [--grep <text>] [--tag <tag>]
               [--workers <n|auto>] [--isolation context|browser] [--retries <n>] [--fail-on-flaky] [--shard <i/n>]
               [--repeat <n>] [--shuffle [<seed>]]
-              [--reporter console|jsonl|github] [--junit <file>] [--cucumber <file>] [--html <file>] [--json]
+              [--reporter console|jsonl|github] [--junit <file>] [--cucumber <file>] [--allure <dir>] [--html <file>] [--json]
               [--timeout-ms <ms>] [--wait-ms <ms>] [--headed] [--chromium <path>]
               [--secrets <file>] [--pause-on-failure] [--config <file>] [--env <name>]
 primavera lint [<file.pv|dir>...]
@@ -242,6 +242,12 @@ primavera list [<file.pv|dir>...]
   relative to the report, so upload the report and `.primavera/runs/`
   together. With `--repeat`, a pass count per scenario comes first. A run
   that finds no scenario (exit 2) writes no report.
+- `--allure <dir>` writes Allure 2 results for `allure generate <dir>` or an
+  Allure server: one `<uuid>-result.json` per scenario run with its steps,
+  times, status (a flaky one passed, marked flaky), labels (the file, the
+  `.feature`'s name, tags, the worker) and the failure's screenshot
+  attached. The directory is kept, so several runs or shards can feed one
+  report; the history id is the same from run to run.
 - `--retries n` runs a failing scenario again; one that passes then is
   reported FLAKY with how its first try failed. `--fail-on-flaky` fails
   the run on one. `--shard i/n` takes every n-th scenario, for CI matrix
@@ -290,7 +296,7 @@ paths = ["tests"]            # what to run when the command line names nothing
 workers = 4                  # or "auto"
 retries = 1
 reporters = ["github"]       # added to --reporter
-junit = "reports/junit.xml"  # also html, cucumber, secrets, evidence, chromium
+junit = "reports/junit.xml"  # also html, cucumber, allure, secrets, evidence, chromium
 [vars]                       # as --var; --var on the command line wins
 region = "us"
 

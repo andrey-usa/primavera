@@ -105,6 +105,13 @@ pub struct ScenarioResult {
     pub worker: usize,
     /// Which of `--repeat`'s runs (0 when not repeated); the name says it too.
     pub rep: u32,
+    /// When it started (Unix ms), for reports with a timeline.
+    pub started: f64,
+}
+
+/// Now, in Unix milliseconds.
+pub fn now_ms() -> f64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0)
 }
 
 impl ScenarioResult {
@@ -125,6 +132,7 @@ impl ScenarioResult {
             notes: Vec::new(),
             worker: 0,
             rep: 0,
+            started: now_ms(),
         }
     }
 
@@ -252,6 +260,7 @@ impl Runner {
     ) -> ScenarioResult {
         self.attempt = attempt;
         let started = Instant::now();
+        let started_ms = now_ms();
         let mut scope = Scope::new(suite, &scenario.name, scenario.vars.clone(), &self.opts, file_vars);
         let mut steps = Vec::new();
         let mut failure = self.clean(scenario.line).err().map(|f| *f);
@@ -303,6 +312,7 @@ impl Runner {
             notes: Vec::new(),
             worker: 0,
             rep: 0,
+            started: started_ms,
         };
         let mask = scope.masker();
         result.saved = scope.saved.into_iter().map(|(k, v)| (k, mask(&v))).collect();

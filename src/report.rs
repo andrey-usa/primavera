@@ -512,6 +512,7 @@ mod tests {
             notes: vec![],
             worker: 0,
             rep: 0,
+            started: 0.0,
         };
         let fail = ScenarioResult {
             name: "Total & tax".into(),
@@ -574,6 +575,7 @@ mod tests {
             notes: vec![],
             worker: 0,
             rep: 0,
+            started: 0.0,
         };
         let fail = ScenarioResult {
             name: "Total & tax".into(),
@@ -631,6 +633,7 @@ mod tests {
             notes: vec![],
             worker: 0,
             rep: 0,
+            started: 0.0,
         }
     }
 }

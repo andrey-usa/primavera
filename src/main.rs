@@ -1,6 +1,7 @@
 //! primavera: plain-text web tests on real Chrome, run by one native binary
 //! through navigera. See README.md.
 
+mod allure;
 mod axtree;
 mod config;
 mod expect;
@@ -53,6 +54,7 @@ run options:
   --update-screenshots  a screenshot that differs from its baseline (or has none) becomes it
   --junit <file>        also write JUnit XML
   --cucumber <file>     also write Cucumber JSON for the .feature files (step by step)
+  --allure <dir>        also write Allure results (a JSON file per scenario run, screenshots attached)
   --html <file>         also write the run as one HTML page (steps, times, failures with their screenshot)
   --json                print what the scenarios saved, as one JSON object, at the end
   --timeout-ms <ms>     how long an expect retries (default 5000)
@@ -71,6 +73,7 @@ struct Args {
     opts: runner::Options,
     junit: Option<PathBuf>,
     cucumber: Option<PathBuf>,
+    allure: Option<PathBuf>,
     html: Option<PathBuf>,
     /// primavera.toml's `[server]`.
     server: Option<config::Server>,
@@ -132,6 +135,7 @@ fn parse_args() -> Result<Args, String> {
     };
     let mut junit = None;
     let mut cucumber = None;
+    let mut allure = None;
     let mut html = None;
     let mut base_flag = None;
     let mut workers = 1usize;
@@ -172,6 +176,7 @@ fn parse_args() -> Result<Args, String> {
             "--tag" => opts.tags.push(val("--tag")?.trim_start_matches('@').to_string()),
             "--junit" => junit = Some(PathBuf::from(val("--junit")?)),
             "--cucumber" => cucumber = Some(PathBuf::from(val("--cucumber")?)),
+            "--allure" => allure = Some(PathBuf::from(val("--allure")?)),
             "--html" => html = Some(PathBuf::from(val("--html")?)),
             "--timeout-ms" => {
                 let v = val("--timeout-ms")?;
@@ -260,6 +265,7 @@ fn parse_args() -> Result<Args, String> {
         opts,
         junit,
         cucumber,
+        allure,
         html,
         server: config.and_then(|c| c.profile.server),
         workers,
@@ -542,6 +548,11 @@ fn run(args: Args) -> ExitCode {
         println!("{}", serde_json::Value::Object(saved));
     }
     Timings::save(&results);
+    if let Some(dir) = &args.allure {
+        if let Err(e) = allure::write(&results, &suites, dir) {
+            eprintln!("could not write Allure results to {}: {e}", dir.display());
+        }
+    }
     if let Some(path) = &args.cucumber {
         if let Err(e) = std::fs::write(path, gherkin::cucumber(&results, &suites)) {
             eprintln!("could not write {}: {e}", path.display());

@@ -241,6 +241,22 @@ fn feature_files_run_with_the_runs_steps_and_report_cucumber_json() {
     let first = &j[0]["elements"][0];
     assert_eq!(first["steps"][0]["keyword"], "Given ");
     assert!(first["steps"].as_array().unwrap().iter().all(|s| s["result"]["status"] == "passed"), "{first}");
+    // Allure results: one per scenario, the feature as a label.
+    let allure = std::env::temp_dir().join(format!("pv-allure-{}", std::process::id()));
+    let (code, out) = primavera(&[
+        "run",
+        "tests/fixtures/features",
+        "--base-url",
+        &site.1,
+        "--allure",
+        &allure.display().to_string(),
+    ]);
+    assert_eq!(code, 0, "{out}");
+    let results: Vec<_> = std::fs::read_dir(&allure).unwrap().filter_map(Result::ok).map(|e| e.path()).collect();
+    assert_eq!(results.iter().filter(|p| p.to_string_lossy().ends_with("-result.json")).count(), 3, "{results:?}");
+    let one: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&results[0]).unwrap()).unwrap();
+    assert!(one["labels"].to_string().contains("Signing in"), "{one}");
+    std::fs::remove_dir_all(&allure).ok();
     // A failure: the step that failed, and the ones after it skipped.
     let (code, out) = primavera(&[
         "run",

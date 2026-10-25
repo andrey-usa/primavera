@@ -44,6 +44,7 @@ pub struct Profile {
     pub junit: Option<String>,
     pub html: Option<String>,
     pub cucumber: Option<String>,
+    pub allure: Option<String>,
     pub secrets: Option<String>,
     pub chromium: Option<String>,
     pub evidence: Option<String>,
@@ -96,6 +97,7 @@ impl Profile {
             junit,
             html,
             cucumber,
+            allure,
             secrets,
             chromium,
             evidence,
@@ -129,6 +131,7 @@ impl Profile {
         flag("--junit", self.junit.clone());
         flag("--html", self.html.clone());
         flag("--cucumber", self.cucumber.clone());
+        flag("--allure", self.allure.clone());
         flag("--secrets", self.secrets.clone());
         flag("--chromium", self.chromium.clone());
         flag("--evidence", self.evidence.clone());
@@ -197,7 +200,10 @@ fn anchored(mut p: Profile, dir: &Path) -> Profile {
             *s = dir.join(s.as_str()).to_string_lossy().into_owned();
         }
     };
-    for f in [&mut p.junit, &mut p.html, &mut p.cucumber, &mut p.secrets, &mut p.evidence].into_iter().flatten() {
+    for f in [&mut p.junit, &mut p.html, &mut p.cucumber, &mut p.allure, &mut p.secrets, &mut p.evidence]
+        .into_iter()
+        .flatten()
+    {
         at(f);
     }
     p.paths.iter_mut().flatten().for_each(at);
