@@ -24,11 +24,13 @@ pub fn save(results: &[ScenarioResult]) {
         .iter()
         .filter_map(|r| r.failure.as_ref().map(|f| (r, f)))
         .map(|(r, f)| {
+            // A flow's step is fixed where it is written.
+            let (file, line, text) = f.source.clone().unwrap_or_else(|| (r.file.clone(), f.line, f.text.clone()));
             json!({
-                "file": std::path::absolute(&r.file).unwrap_or_else(|_| r.file.clone()),
+                "file": std::path::absolute(&file).unwrap_or(file),
                 "scenario": r.name,
-                "line": f.line,
-                "text": f.text,
+                "line": line,
+                "text": text,
                 "message": f.message,
                 "hint": f.hint,
                 "screenshot": f.screenshot,

@@ -85,6 +85,10 @@ pub struct Failure {
     /// When the element wasn't there: what on the page comes closest,
     /// (`role "name"`, a locator for it, how close).
     pub nearest: Vec<(String, String, f64)>,
+    /// Where the step that failed is written when that isn't the
+    /// scenario's own line (a step of a flow, maybe in a `use`d file):
+    /// file, line, text. `fix` changes that line.
+    pub source: Option<(PathBuf, usize, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -250,6 +254,7 @@ impl Runner {
                 hint: None,
                 screenshot: None,
                 nearest: Vec::new(),
+                source: None,
             })
         })
     }
@@ -455,8 +460,21 @@ impl Runner {
                 self.driver.run(&cmd).ok()
             })
             .map(|_| shot);
-        let nearest = if message.contains("no element") { self.nearest(&step.action, scope) } else { Vec::new() };
-        Failure { line: step.line, text: step.text.clone(), message, at, hint: scope.noop.clone(), screenshot, nearest }
+        // A step of a flow failed: what comes closest is to its element.
+        let inner = scope.inner.clone();
+        let action = inner.as_ref().map_or(&step.action, |(_, s)| &s.action);
+        let nearest = if message.contains("no element") { self.nearest(action, scope) } else { Vec::new() };
+        let source = inner.map(|(file, s)| (file, s.line, s.text));
+        Failure {
+            line: step.line,
+            text: step.text.clone(),
+            message,
+            at,
+            hint: scope.noop.clone(),
+            screenshot,
+            nearest,
+            source,
+        }
     }
 
     /// What on the page comes closest to the element a step asked for.
@@ -476,6 +494,7 @@ impl Runner {
     }
 
     fn step(&mut self, step: &Step, scope: &mut Scope, suite: &Suite) -> Result<(), String> {
+        scope.inner = None;
         self.action(&step.action, step, scope, suite, 0)
     }
 
@@ -644,6 +663,8 @@ impl Runner {
                 let mut result = Ok(());
                 for st in &f.steps {
                     if let Err(e) = self.action(&st.action, st, scope, suite, depth + 1) {
+                        // The innermost step that failed (set first, on the way out).
+                        scope.inner.get_or_insert_with(|| (f.file.clone(), st.clone()));
                         let file = f.file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                         result = Err(format!("in flow {flow}, {file}:{} `{}`: {e}", st.line, st.text));
                         break;
@@ -1567,6 +1588,8 @@ struct Scope {
     http_headers: Vec<(String, String)>,
     /// The `.pv` file: screenshot baselines are beside it.
     pv: PathBuf,
+    /// The step of a flow that failed, and its file (see `Failure::source`).
+    inner: Option<(PathBuf, Step)>,
 }
 
 impl Scope {
@@ -1593,6 +1616,7 @@ impl Scope {
             soft: Vec::new(),
             http_headers: Vec::new(),
             pv: suite.file.clone(),
+            inner: None,
         };
         // A `set` value's own `${…}` (a default, `--var`, another `set`, a
         // secret, the environment) is filled in once, here; one that names

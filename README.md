@@ -236,6 +236,10 @@ primavera record <url> [--out <file.pv>] [--scenario <name>] [--headless] [--for
 primavera mcp [--headed] [--chromium <path>]
 ```
 
+- A click that opens a tab or a popup (`target=_blank`, `window.open`)
+  moves the scenario to it, as navigera does: the next steps read and act
+  there. `tab-select 0` goes back to the first tab; `tab-close` closes the
+  one you're on.
 - Every scenario starts in a fresh browser context (navigera `reset
   --all`: no cookies, storage, tabs, routes, init scripts, `set`
   emulation or dialog answer from the scenario before), in about 40 ms

@@ -670,6 +670,17 @@ fn fix_puts_a_suggestion_into_the_failing_step() {
     // The run that passed left nothing to fix.
     let (code, out) = pv(&["fix", "t.pv:3"]);
     assert_eq!(code, 2, "{out}");
+    // A step of a flow in a used file is fixed where it is written.
+    std::fs::write(dir.join("lib.pv"), "flow sign_in()\n  click --role button --name \"Sign on\" --timeout-ms 300\n")
+        .unwrap();
+    std::fs::write(dir.join("u.pv"), "use lib.pv\n\nscenario \"Signs in\"\n  goto /login\n  run sign_in\n").unwrap();
+    let (code, out) = pv(&["run", "u.pv", "--base-url", &site.1, "--evidence", "ev"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("fix: primavera fix lib.pv:2 --use 1"), "{out}");
+    let (code, out) = pv(&["fix", "lib.pv:2", "--use", "1"]);
+    assert_eq!(code, 0, "{out}");
+    let (code, out) = pv(&["run", "u.pv", "--base-url", &site.1, "--evidence", "ev"]);
+    assert_eq!(code, 0, "{out}");
     std::fs::remove_dir_all(&dir).ok();
 }
 

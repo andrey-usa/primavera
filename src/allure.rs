@@ -136,6 +136,7 @@ mod tests {
                 hint: None,
                 screenshot: None,
                 nearest: vec![],
+                source: None,
             }),
             attempt: 1,
             retried: vec![],

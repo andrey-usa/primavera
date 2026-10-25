@@ -36,8 +36,10 @@ fn failure_lines(out: &mut String, f: &Failure, indent: &str, file: &Path) {
             let pad = " ".repeat(width - shown.chars().count());
             let _ = writeln!(out, "{indent}  {}. {shown}{pad}   {locator}   {score:.2}", i + 1);
         }
+        // Where the failing step is written (a flow's, maybe in a used file).
+        let (file, line) = f.source.as_ref().map_or((file, f.line), |(p, l, _)| (p.as_path(), *l));
         if file.extension().is_none_or(|e| e != "feature") {
-            let _ = writeln!(out, "{indent}fix: primavera fix {}:{} --use 1", rel(file), f.line);
+            let _ = writeln!(out, "{indent}fix: primavera fix {}:{line} --use 1", rel(file));
         }
     }
     if let Some(h) = &f.hint {
@@ -540,6 +542,7 @@ mod tests {
                 hint: None,
                 screenshot: Some(shot.clone()),
                 nearest: vec![("button \"Pay\"".into(), "--role button --name Pay".into(), 0.8)],
+                source: None,
             }),
             ..pass.clone()
         };
@@ -625,6 +628,7 @@ mod tests {
                 hint: None,
                 screenshot: None,
                 nearest: vec![],
+                source: None,
             }),
             ..pass.clone()
         };
@@ -663,6 +667,7 @@ mod tests {
                 hint: None,
                 screenshot: None,
                 nearest: vec![],
+                source: None,
             }),
             attempt: 1,
             retried: vec![],
