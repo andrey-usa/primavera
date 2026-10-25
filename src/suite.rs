@@ -920,8 +920,11 @@ fn anchor_inputs(action: &mut Action, dir: &Path) {
             *d = dir.to_path_buf();
             if let Some(p) = argv.first_mut().filter(|p| (p.contains('/') || p.contains('\\')) && !p.starts_with("${"))
             {
+                // Absolute: a relative one would be looked up from the
+                // program's own working directory (`dir`) a second time.
                 if Path::new(p.as_str()).is_relative() {
-                    *p = dir.join(p.as_str()).to_string_lossy().into_owned();
+                    let at = dir.join(p.as_str());
+                    *p = std::path::absolute(&at).unwrap_or(at).to_string_lossy().into_owned();
                 }
             }
             return;
@@ -1263,7 +1266,7 @@ mod tests {
         let steps = &s.scenarios[0].steps;
         match &steps[0].action {
             Action::Exec { argv, timeout_ms, dir, steps } => {
-                assert_eq!(argv[0], Path::new("dir").join("./seed.sh").to_string_lossy());
+                assert_eq!(argv[0], std::path::absolute("dir/./seed.sh").unwrap().to_string_lossy());
                 assert_eq!(argv[1], "${who}");
                 assert_eq!(*timeout_ms, Some(900));
                 assert_eq!(dir, Path::new("dir"));

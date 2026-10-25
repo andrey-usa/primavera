@@ -192,7 +192,8 @@ Status: pre-release. Everything below works in this build.
   Copy the lines from `navigera ax` and keep the ones that matter. A miss
   names the first line that has no place and the nearest line of its role
   (`no line matches \`- combobox "Country" value="Mexico"\`; nearest:
-  \`- combobox "Country" value="Canada"\``).
+  \`- combobox "Country" value="Canada" options: …\``, the line as `ax`
+  prints it).
 
 ## Gherkin
 

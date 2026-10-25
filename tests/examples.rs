@@ -206,6 +206,11 @@ fn exec_runs_programs_and_checks_what_they_said() {
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("exited 2: db down"), "{out}");
     assert!(out.contains("still ran after 300 ms; stopped it"), "{out}");
+    // A script named by its path, the run started from elsewhere.
+    if cfg!(unix) {
+        let (code, out) = primavera(&["run", "tests/fixtures/exec-path.pv"]);
+        assert_eq!(code, 0, "{out}");
+    }
 }
 
 #[test]
