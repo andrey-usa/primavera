@@ -36,11 +36,18 @@ FORM = """
 <label>Email <input id=email></label>
 <label><input type=checkbox id=gift> Gift wrap</label>
 <label>Size <select id=size><option>Small</option><option>Large</option></select></label>
+<x-tip id=tip></x-tip>
 <a href=/done id=go>Place order</a>
 <script>
+// A web component's icon button: no name, inside a shadow root.
+customElements.define('x-tip', class extends HTMLElement { connectedCallback() {
+  if (!this.shadowRoot) this.attachShadow({mode: 'open'}).innerHTML = '<button><svg width=12 height=12></svg></button>';
+  this.shadowRoot.querySelector('button').onclick = () => { this.dataset.open = '1'; };
+} });
 if (location.search.includes('auto=1')) setTimeout(() => {
   email.click(); email.value = 'ada@example.com'; email.dispatchEvent(new Event('change', {bubbles: true}));
   gift.click();
+  tip.shadowRoot.querySelector('button').click();
   size.value = 'Large'; size.dispatchEvent(new Event('change', {bubbles: true}));
   setTimeout(() => go.click(), 100);
 }, 300);

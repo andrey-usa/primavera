@@ -337,7 +337,8 @@ primavera --version
   as a scenario: each action once, and the waits between (reads and `eval`
   left out), every ref replaced by the most stable locator that found its
   element again just before the action (test id, role and name, label, placeholder, text, CSS;
-  navigera's `locate`, each checked on the page), `base` from the first
+  navigera's `locate`, each checked on the page; inside a web component's
+  shadow root, CSS through its hosts: `--selector "#tip >>> button"`), `base` from the first
   `goto`, an `expect url` where an action moved the page, an `expect text`
   for a heading that changed or a status/alert message that appeared (as a
   comment when it has numbers, which may change), and a value typed

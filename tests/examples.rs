@@ -552,7 +552,8 @@ fn a_recording_becomes_a_scenario_that_passes() {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let pv = std::fs::read_to_string(&file).unwrap();
     let want = "scenario \"Orders\"\n  goto /form?auto=1\n  fill --role textbox --name Email ada@example.com\n  \
-                check --role checkbox --name \"Gift wrap\"\n  select --role combobox --name Size Large\n  \
+                check --role checkbox --name \"Gift wrap\"\n  click --selector \"#tip >>> button\"\n  \
+                select --role combobox --name Size Large\n  \
                 click --role link --name \"Place order\"\n  expect url ends-with /done\n";
     assert!(pv.ends_with(want), "{pv}");
     // Run without the page using itself: the steps do it.
