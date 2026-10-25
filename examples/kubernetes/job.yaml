@@ -1,6 +1,7 @@
 # primavera as a Kubernetes (or OpenShift) Job: the tests from a ConfigMap,
-# the app at a Service in the cluster, JUnit on stdout's last lines and in
-# the pod's /work/out. The image: `docker build -f primavera/Dockerfile`
+# the app at a Service in the cluster, the run's lines on the pod's log,
+# JUnit and evidence in its /work/out (an emptyDir: copy them out, or mount
+# a volume that outlives the pod, before the pod goes). The image: `docker build -f primavera/Dockerfile`
 # (see primavera's README), pushed where the cluster pulls from.
 #
 #   kubectl create configmap pv-tests --from-file=tests/

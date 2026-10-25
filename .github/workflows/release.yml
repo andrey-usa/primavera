@@ -80,12 +80,17 @@ jobs:
         env:
           RUSTFLAGS: ${{ contains(matrix.target, 'windows') && '-C target-feature=+crt-static' || '' }}
         run: cargo build --release --locked --target ${{ matrix.target }}
-      - name: Smoke test (native targets)
-        if: "!contains(matrix.target, 'x86_64-apple') || runner.arch == 'X64'"
+      - name: Smoke test
         run: |
           bin=target/${{ matrix.target }}/release/primavera
-          "$bin" --version
-          "$bin" skill | head -3
+          # The x86_64 macOS build on an arm64 runner: under Rosetta.
+          run=()
+          if [ "${{ matrix.target }}" = x86_64-apple-darwin ] && [ "$(uname -m)" = arm64 ]; then
+            arch -x86_64 /usr/bin/true || softwareupdate --install-rosetta --agree-to-license
+            run=(arch -x86_64)
+          fi
+          "${run[@]}" "$bin" --version
+          "${run[@]}" "$bin" skill | head -3
       - name: Package
         if: runner.os != 'Windows'
         run: |

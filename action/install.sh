@@ -35,7 +35,12 @@ release() {
     echo "::error title=primavera::no checksum beside $url"; exit 1; }
   [ "$(cut -d' ' -f1 < "$tmp/pv.sha256")" = "$(sha256 "$tmp/pv.$ext")" ] || {
     echo "::error title=primavera::$url does not match its checksum"; exit 1; }
-  if [ "$ext" = zip ]; then unzip -qo "$tmp/pv.zip" -d "$root/bin"; else tar -C "$root/bin" -xzf "$tmp/pv.tar.gz"; fi
+  if [ "$ext" = zip ]; then
+    # Git Bash may have no unzip; PowerShell always can.
+    pwsh -NoProfile -Command "Expand-Archive -Force -Path '$(cygpath -w "$tmp/pv.zip")' -DestinationPath '$(cygpath -w "$root/bin")'" || return 1
+  else
+    tar -C "$root/bin" -xzf "$tmp/pv.tar.gz" || return 1
+  fi
   echo "primavera $PV_VERSION from $url"
 }
 

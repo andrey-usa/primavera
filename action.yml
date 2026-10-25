@@ -54,6 +54,10 @@ runs:
         set -- run "${paths[@]}"
         [ -n "$PV_BASE_URL" ] && set -- "$@" --base-url "$PV_BASE_URL"
         evidence="$RUNNER_TEMP/primavera-evidence"
-        case " $PV_ARGS " in *" --evidence "*) ;; *) set -- "$@" --evidence "$evidence" ;; esac
+        given=""
+        for ((i = 0; i < ${#extra[@]}; i++)); do
+          [ "${extra[$i]}" = --evidence ] && given="${extra[$((i + 1))]:-}"
+        done
+        if [ -n "$given" ]; then evidence="$given"; else set -- "$@" --evidence "$evidence"; fi
         echo "evidence=$evidence" >> "$GITHUB_OUTPUT"
         primavera "$@" "${extra[@]}"

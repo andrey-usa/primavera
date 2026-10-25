@@ -155,8 +155,8 @@ Status: pre-release. Everything below works in this build.
 | `download <file glob> compare <expected file>` [`--key <columns>`] [compara flags…] | the download is the same table as the expected file beside the `.pv` ([compara](https://github.com/andrey-usa/compara) on the PATH, or `PRIMAVERA_COMPARA`): CSV, NDJSON or Parquet, either side; compara's flags (`-i`, `--trim`, `--tolerance`) pass through. A difference fails the step with compara's counts and the reports it kept beside the scenario's downloads: `--report html,json,rows` (the HTML report, the JSON summary of counts and column statistics, CSVs of the changed, added and removed rows) or `none`; the run's `--compare-report` (`compare_report` in `primavera.toml`, default `html`) when the step doesn't say, and compara's own `-o`, `--json` or `--export-dir` win |
 | `console` + a comparison, `no console "<t>"` | a console message (any level) |
 | `no errors` | no page exceptions or console errors |
-| `accessible` [`--selector <css>`] [`--tags wcag2a,wcag2aa,…`] [`--ignore <rule>,…`] | [axe-core](https://github.com/dequelabs/axe-core) (built in) finds no violation in the page, or under the selector: WCAG 2.0 and 2.1 A and AA by default (`--tags best-practice` and the rest of axe's tags too); a failure names each rule, its impact, the first elements and what to fix |
-| `lcp`, `fcp`, `ttfb`, `load` `<`, `<=`, `>`, `>=` `<time>` (`2.5s`, `800ms`); `cls` + a comparison and a score (`0.1`) | a performance budget for the current page, as the browser measured it: largest and first contentful paint, time to first byte, the load event (ms from the navigation's start); the layout shift score (its largest session window, shifts after input left out). Not measured yet (the load event still to come) is retried |
+| `accessible` [`--selector <css>`] [`--tags wcag2a,wcag2aa,…`] [`--ignore <rule>,…`] | [axe-core](https://github.com/dequelabs/axe-core) (built in) finds no violation in the page, or under the selector: WCAG 2.0 and 2.1 A and AA by default; `--tags` replaces that set (`--tags wcag2a,wcag2aa,best-practice` to add axe's best practices); a failure names each rule, its impact, the first elements and what to fix |
+| `lcp`, `fcp`, `ttfb`, `load` `<`, `<=`, `>`, `>=` `<time>` (`2.5s`, `800ms`; a bare number is ms); `cls` + a comparison and a score (`0.1`) | a performance budget for the current page, as the browser measured it: largest and first contentful paint, time to first byte, the load event (ms from the navigation's start); the layout shift score (its largest session window, shifts after input left out). Not measured yet (the load event still to come) is retried |
 | `exit` [`is`] `<n>`, `stdout`/`stderr` + a comparison | what the last `exec` gave |
 | `status` [`is`] `<n>`, `body` + a comparison, `json <$.path>` [+ a comparison], `header <name>` [+ a comparison] | the last `http` answer |
 | `ax [<target>] matches` + the tree indented under it | the page's (or the target's) accessibility tree, as `navigera ax` prints it, holds those lines: partially (`button` matches `button "Place order"`) and in order, a line indented under another inside what that one matched, refs ignored, `/regex/` (spaces allowed) for a name or a value |
@@ -271,7 +271,8 @@ primavera --version
   at 4 workers than a browser each; `--isolation browser` gives each its
   own); the longest start first (by `.primavera/timings.json`, which each
   run updates; the first run goes in file order).
-- `--engine lightpanda` (or `engine = "lightpanda"` in a profile) runs on
+- `--engine lightpanda` (or `engine = "lightpanda"` in a profile, or
+  `NAVIGERA_ENGINE=lightpanda`) runs on
   [Lightpanda](https://github.com/lightpanda-io/browser) (`$LIGHTPANDA_BIN`
   or `lightpanda` on the PATH), a new Lightpanda for each scenario (it has
   one context per process): less memory, no layout. A smoke tier, not a
@@ -334,7 +335,8 @@ primavera --version
   0.1) and a decision model is set up for navigera (`TYPESAFE_API_KEY`, or
   `NAVIGERA_DECIDER_URL`), primavera also asks it which element the step
   meant (navigera's `find`, on the failing page) and puts its pick first,
-  marked `(decider)`; one call per such failure, none otherwise.
+  marked `(decider)` (the list stays at three); one call per such
+  failure, none otherwise.
 - `primavera fix <file>:<line> [--use <n>]` puts the last run's n-th
   "nearest on the page" into that step (only its locator flags change, and
   only if the line still reads as it did); `primavera fix --all [--min
@@ -375,7 +377,8 @@ primavera --version
   `after each` left out, then hands you the browser there; what you do
   goes in after its last step, the same way, and the rest of the file stays
   as it was. A scenario that fails before its end is not extended: fix it
-  first.
+  first. `--headless` and `--for <s>` work as for `record`; a `.feature`
+  is refused (its steps live in its `step` blocks).
 - `primavera mcp` is the same loop for an agent over MCP (stdio): navigera's
   browser tools (`browser_navigate`, `browser_snapshot`, `browser_click`,
   … one browser for all of them) beside `primavera_from_session` (what
@@ -460,8 +463,9 @@ $ docker run --rm --network host -v "$PWD/tests:/tests:ro" primavera run /tests 
 ```
 
 It runs as an unprivileged user (any uid, so OpenShift's random ones too),
-with a read-only root filesystem if asked (`HOME=/tmp` and a `/tmp` to
-write to), and without Chrome's own sandbox: a container without user
+with a read-only root filesystem if asked (`HOME=/tmp`, a `/tmp` to write
+to, and a writable working directory: `.primavera/` with the last run,
+timings and evidence goes there, `/work` by default), and without Chrome's own sandbox: a container without user
 namespaces can't give Chrome one, and the container is the boundary.
 `examples/kubernetes/job.yaml` is a Job: the tests from a ConfigMap, JUnit
 and evidence in `/work/out`, a memory-backed `/dev/shm`.
