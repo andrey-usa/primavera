@@ -13,6 +13,7 @@ mod runner;
 mod server;
 mod shot;
 mod suite;
+mod trace;
 
 use std::collections::BTreeMap;
 use std::io::Write as _;
@@ -31,6 +32,7 @@ usage:
   primavera run [<file.pv|dir>...] [options]   run scenarios (default: the current directory)
   primavera lint [<file.pv|dir>...]             check files without a browser
   primavera list [<file.pv|dir>...]             the scenarios a run would take
+  primavera trace <dir> [<line>]                a recorded trace (--trace): every step, or one in full
   primavera skill                               the agent skill (the format and commands, for an AI agent)
   primavera --version
 
@@ -52,6 +54,8 @@ run options:
   --config <file>       settings, a [server] and [env.<name>] profiles (default: ./primavera.toml)
   --env <name>          the config's [env.<name>] profile on top of the rest
   --update-screenshots  a screenshot that differs from its baseline (or has none) becomes it
+  --trace <when>        on-failure or all: each step's page, console and requests in trace.jsonl
+                        beside the screenshot (and ax.txt at a failure); read it with `primavera trace`
   --junit <file>        also write JUnit XML
   --cucumber <file>     also write Cucumber JSON for the .feature files (step by step)
   --allure <dir>        also write Allure results (a JSON file per scenario run, screenshots attached)
@@ -132,6 +136,7 @@ fn parse_args() -> Result<Args, String> {
         pause: false,
         auth: Default::default(),
         update_shots: false,
+        trace: Default::default(),
     };
     let mut junit = None;
     let mut cucumber = None;
@@ -188,6 +193,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "--headed" => opts.headed = true,
             "--update-screenshots" => opts.update_shots = true,
+            "--trace" => opts.trace = trace::Trace::parse(&val("--trace")?)?,
             "--chromium" => opts.chromium = Some(val("--chromium")?),
             "--evidence" => opts.evidence = PathBuf::from(val("--evidence")?),
             "--workers" | "-j" => {
@@ -347,6 +353,20 @@ fn main() -> ExitCode {
         "--version" | "-V" | "version" => {
             println!("primavera {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
+        }
+        "trace" => {
+            let dir = args.paths.first().cloned().unwrap_or_else(|| PathBuf::from(".primavera/runs"));
+            let only = args.paths.get(1).and_then(|p| p.to_str()?.parse::<usize>().ok());
+            match trace::show(&dir, only) {
+                Ok(text) => {
+                    print!("{text}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    ExitCode::from(2)
+                }
+            }
         }
         "lint" => match load(&args.paths) {
             Ok(suites) => {

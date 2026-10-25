@@ -57,6 +57,8 @@ pub struct Options {
     pub auth: Arc<AuthCache>,
     /// `--update-screenshots`: a screenshot that differs becomes the baseline.
     pub update_shots: bool,
+    /// `--trace`: record what each step saw.
+    pub trace: crate::trace::Trace,
 }
 
 /// One step that ran, for the HTML report.
@@ -266,12 +268,28 @@ impl Runner {
         let mut failure = self.clean(scenario.line).err().map(|f| *f);
         let downloads = if failure.is_none() { self.own_downloads(suite, &scenario.name) } else { None };
         let all: Vec<&Step> = suite.before_each.iter().chain(&scenario.steps).collect();
+        let tracing = self.opts.trace != crate::trace::Trace::Off && failure.is_none();
+        let mut trace: Vec<Value> = Vec::new();
+        let mut ax_at_failure = None;
+        let mut seen = (0usize, 0u64);
+        if tracing {
+            seen = (self.console_count(), self.last_request());
+        }
         if failure.is_none() {
             for step in all {
                 let t = Instant::now();
                 let res = self.step(step, &mut scope, suite);
                 let ms = t.elapsed().as_secs_f64() * 1000.0;
                 steps.push(StepResult { line: step.line, text: step.text.clone(), ms, ok: res.is_ok() });
+                if tracing {
+                    trace.push(self.trace_step(step, ms, res.as_ref().err().map(String::as_str), &mut seen));
+                    if res.is_err() {
+                        ax_at_failure = match self.command(&["ax".into(), "--limit".into(), "0".into()]) {
+                            Ok(Value::String(t)) => Some(t),
+                            _ => None,
+                        };
+                    }
+                }
                 if let Err(message) = res {
                     failure = Some(self.failure(step, message, &scope, suite, &scenario.name));
                     break;
@@ -315,6 +333,20 @@ impl Runner {
             started: started_ms,
         };
         let mask = scope.masker();
+        if tracing && (self.opts.trace == crate::trace::Trace::All || result.failure.is_some()) {
+            let dir = self.evidence_dir(suite, &scenario.name);
+            let head = serde_json::json!({
+                "scenario": result.name, "file": suite.file.display().to_string(), "line": result.line,
+                "passed": result.failure.is_none(), "ms": result.ms,
+            });
+            let text: String = std::iter::once(head).chain(trace).map(|v| mask(&v.to_string()) + "\n").collect();
+            if std::fs::create_dir_all(&dir).is_ok() {
+                let _ = std::fs::write(dir.join("trace.jsonl"), text);
+                if let Some(ax) = ax_at_failure {
+                    let _ = std::fs::write(dir.join("ax.txt"), mask(&ax));
+                }
+            }
+        }
         result.saved = scope.saved.into_iter().map(|(k, v)| (k, mask(&v))).collect();
         result.notes = scope.notes.iter().map(|n| mask(n)).collect();
         for step in result.steps.iter_mut() {
@@ -880,6 +912,52 @@ impl Runner {
                 Err(why) => format!("{why}; this run {}", actual.display()),
             },
         ))
+    }
+
+    /// How many console messages the tab has so far.
+    fn console_count(&mut self) -> usize {
+        match self.command(&["console".into(), "--json".into()]) {
+            Ok(Value::Array(all)) => all.len(),
+            _ => 0,
+        }
+    }
+
+    /// The tab's latest request number.
+    fn last_request(&mut self) -> u64 {
+        match self.command(&["network".into()]) {
+            Ok(Value::String(t)) => crate::trace::last_request(&t),
+            _ => 0,
+        }
+    }
+
+    /// A step's line of the trace: where the page is, and the console
+    /// messages and requests since the step before (`seen`: how many
+    /// messages, the last request number).
+    fn trace_step(&mut self, step: &Step, ms: f64, error: Option<&str>, seen: &mut (usize, u64)) -> Value {
+        let page = match self.command(&["url".into()]) {
+            Ok(v) => (
+                v.get("url").and_then(Value::as_str).unwrap_or("").to_string(),
+                v.get("title").and_then(Value::as_str).unwrap_or("").to_string(),
+            ),
+            Err(_) => Default::default(),
+        };
+        let console = match self.command(&["console".into(), "--json".into()]) {
+            Ok(Value::Array(all)) => {
+                // A shorter list is a new tab's: all of it is new.
+                let from = if all.len() < seen.0 { 0 } else { seen.0 };
+                seen.0 = all.len();
+                all[from..].iter().take(200).cloned().collect()
+            }
+            _ => Vec::new(),
+        };
+        let network = match self.command(&["network".into(), "--since".into(), seen.1.to_string()]) {
+            Ok(Value::String(t)) => {
+                seen.1 = crate::trace::last_request(&t).max(seen.1);
+                t.lines().filter(|l| l.starts_with('#')).take(200).map(String::from).collect()
+            }
+            _ => Vec::new(),
+        };
+        crate::trace::step(step.line, &step.text, ms, error, page, console, network)
     }
 
     /// One look: whether the subject holds, and what was seen.

@@ -220,9 +220,11 @@ primavera run [<file.pv|file.feature|dir>...] [--base-url <url>] [--var k=v] [--
               [--repeat <n>] [--shuffle [<seed>]]
               [--reporter console|jsonl|github] [--junit <file>] [--cucumber <file>] [--allure <dir>] [--html <file>] [--json]
               [--timeout-ms <ms>] [--wait-ms <ms>] [--headed] [--chromium <path>]
-              [--secrets <file>] [--pause-on-failure] [--config <file>] [--env <name>]
+              [--secrets <file>] [--pause-on-failure] [--trace on-failure|all] [--update-screenshots]
+              [--config <file>] [--env <name>]
 primavera lint [<file.pv|dir>...]
 primavera list [<file.pv|dir>...]
+primavera trace <dir> [<line>]
 ```
 
 - Every scenario starts in a fresh browser context (navigera `reset
@@ -248,6 +250,13 @@ primavera list [<file.pv|dir>...]
   `.feature`'s name, tags, the worker) and the failure's screenshot
   attached. The directory is kept, so several runs or shards can feed one
   report; the history id is the same from run to run.
+- `--trace on-failure` (or `all`) records each step of a scenario: where
+  the page was, the console messages and the requests it brought, in
+  `trace.jsonl` beside the scenario's screenshot, with the page's ax tree
+  at a failure in `ax.txt`. `primavera trace <dir>` prints it (a run's
+  directory lists its traces); `primavera trace <dir> <line>` shows one
+  step in full, with the tree when it is the one that failed. Secrets are
+  masked in it as in the console.
 - `--retries n` runs a failing scenario again; one that passes then is
   reported FLAKY with how its first try failed. `--fail-on-flaky` fails
   the run on one. `--shard i/n` takes every n-th scenario, for CI matrix

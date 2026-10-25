@@ -373,6 +373,46 @@ fn screenshots_match_their_baselines() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+#[test]
+fn a_trace_records_each_step_and_reads_back() {
+    let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
+    let dir = std::env::temp_dir().join(format!("pv-trace-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let pv = dir.join("t.pv");
+    std::fs::write(
+        &pv,
+        "scenario \"Traced\"\n  goto /login\n  eval \"(console.error('boom-trace'), fetch('/api/n'), 1)\"\n  \
+         wait --ms 200\n  expect text \"never there\" --timeout-ms 300\n",
+    )
+    .unwrap();
+    let ev = dir.join("ev");
+    let out = Command::new(env!("CARGO_BIN_EXE_primavera"))
+        .args(["run", pv.to_str().unwrap(), "--base-url", &site.1, "--trace", "on-failure"])
+        .args(["--evidence", ev.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let show = |extra: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_primavera")).arg("trace").arg(&ev).args(extra).output().unwrap();
+        String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr)
+    };
+    // The run directory lists its traces; the scenario's shows each step.
+    let list = show(&[]);
+    let scenario =
+        std::fs::read_dir(&ev).unwrap().filter_map(Result::ok).find(|e| e.path().join("trace.jsonl").is_file());
+    let scenario = scenario.expect("a trace.jsonl").path();
+    let all = Command::new(env!("CARGO_BIN_EXE_primavera")).arg("trace").arg(&scenario).output().unwrap();
+    let all = String::from_utf8_lossy(&all.stdout).to_string();
+    assert!(all.starts_with("FAIL ") && all.contains("\"Traced\""), "{all}{list}");
+    assert!(all.contains("console error: boom-trace"), "{all}");
+    assert!(all.contains("net #") && all.contains("/api/n"), "{all}");
+    assert!(all.contains("/login \"t\""), "{all}");
+    let one = Command::new(env!("CARGO_BIN_EXE_primavera")).arg("trace").arg(&scenario).arg("5").output().unwrap();
+    let one = String::from_utf8_lossy(&one.stdout).to_string();
+    assert!(one.contains("FAIL") && one.contains("the page at the failure (ax.txt)"), "{one}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// A GET to the fixture site, its body.
 fn fetch(site: &Site, path: &str) -> String {
     use std::io::{Read, Write};

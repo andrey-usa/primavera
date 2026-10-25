@@ -49,6 +49,8 @@ pub struct Profile {
     pub chromium: Option<String>,
     pub evidence: Option<String>,
     pub headed: Option<bool>,
+    /// `on-failure`, `all` or `off`.
+    pub trace: Option<String>,
     #[serde(default)]
     pub vars: BTreeMap<String, String>,
     pub server: Option<Server>,
@@ -102,6 +104,7 @@ impl Profile {
             chromium,
             evidence,
             headed,
+            trace,
             server
         );
         self.vars.extend(over.vars);
@@ -135,6 +138,7 @@ impl Profile {
         flag("--secrets", self.secrets.clone());
         flag("--chromium", self.chromium.clone());
         flag("--evidence", self.evidence.clone());
+        flag("--trace", self.trace.clone());
         for r in self.reporters.iter().flatten() {
             flag("--reporter", Some(r.clone()));
         }
