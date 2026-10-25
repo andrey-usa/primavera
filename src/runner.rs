@@ -1199,6 +1199,16 @@ impl Runner {
                 let actual = scope.word(raw)?;
                 (compare(&actual, e.matcher, value), actual)
             }
+            Subject::Metric(name) => {
+                let v = self.command(&["eval".into(), format!("({METRIC_JS})({})", serde_json::json!(name))])?;
+                match v.as_f64() {
+                    Some(n) => {
+                        let actual = format!("{}", (n * 1000.0).round() / 1000.0);
+                        (compare(&actual, e.matcher, value), actual)
+                    }
+                    None => (false, "not measured yet".into()),
+                }
+            }
             Subject::Js(code) => {
                 let code = scope.word(code)?;
                 match self.command(&["eval".into(), code]) {
@@ -1436,6 +1446,35 @@ impl Drop for Runner {
     }
 }
 
+/// `expect lcp|fcp|ttfb|load|cls`: what the browser measured for the
+/// current document (ms from its navigation start; `cls`: the largest
+/// session window of layout shifts not caused by input), or null.
+const METRIC_JS: &str = r#"async (name) => {
+  const nav = performance.getEntriesByType('navigation')[0];
+  const seen = (type) => new Promise((done) => {
+    let got = [];
+    try {
+      const o = new PerformanceObserver((l) => { got = got.concat(l.getEntries()); });
+      o.observe({ type, buffered: true });
+      setTimeout(() => { o.disconnect(); done(got); }, 50);
+    } catch (_) { done([]); }
+  });
+  if (name === 'ttfb') return nav ? nav.responseStart : null;
+  if (name === 'load') return nav && nav.loadEventEnd > 0 ? nav.loadEventEnd : null;
+  if (name === 'fcp') { const e = performance.getEntriesByName('first-contentful-paint')[0]; return e ? e.startTime : null; }
+  if (name === 'lcp') { const all = await seen('largest-contentful-paint'); return all.length ? all[all.length - 1].startTime : null; }
+  if (name === 'cls') {
+    let best = 0, sum = 0, first = 0, last = 0;
+    for (const e of (await seen('layout-shift')).filter((e) => !e.hadRecentInput)) {
+      if (sum && (e.startTime - last > 1000 || e.startTime - first > 5000)) sum = 0;
+      if (!sum) first = e.startTime;
+      sum += e.value; last = e.startTime; best = Math.max(best, sum);
+    }
+    return best;
+  }
+  return null;
+}"#;
+
 pub(crate) fn parse(words: &[String]) -> Result<Command, String> {
     let parsed =
         parse_args(std::iter::once("navigera".to_string()).chain(words.iter().cloned())).map_err(|e| match e {
@@ -1454,6 +1493,15 @@ fn describe(e: &Expect, value: &str, actual: &str, limit: Duration) -> String {
         return format!(
             "expected screenshot {} {not}to match its baseline within {} ms: {actual}",
             s.name,
+            limit.as_millis()
+        );
+    }
+    if let Subject::Metric(m) = &e.subject {
+        let unit = if m == "cls" { "" } else { " ms" };
+        let seen = if actual.parse::<f64>().is_ok() { format!("{actual}{unit}") } else { actual.to_string() };
+        return format!(
+            "expected {not}{m} {} {value}{unit} within {} ms; saw {seen}",
+            e.matcher.word(),
             limit.as_millis()
         );
     }
@@ -1488,6 +1536,7 @@ fn describe(e: &Expect, value: &str, actual: &str, limit: Duration) -> String {
         // Said above.
         Subject::Ax { .. } => String::new(),
         Subject::Screenshot(s) => format!("screenshot {}", s.name),
+        Subject::Metric(m) => m.clone(),
         Subject::Http(HttpRead::Json(p)) => format!("json {p}"),
         Subject::Http(HttpRead::Header(h)) => format!("header {h}"),
         Subject::Target { flags, prop } => {

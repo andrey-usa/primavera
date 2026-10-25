@@ -640,6 +640,25 @@ fn an_unsure_failure_asks_the_decision_model_when_there_is_one() {
 }
 
 #[test]
+fn load_metrics_are_budgets() {
+    let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
+    let dir = std::env::temp_dir().join(format!("pv-metrics-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("budgets.pv");
+    std::fs::write(
+        &file,
+        "scenario \"Within budget\"\n  goto /form\n  expect ttfb < 10s\n  expect fcp < 10s\n  expect lcp < 10s\n  \
+         expect load < 10000ms\n  expect cls < 0.1\n\nscenario \"Over\"\n  goto /form\n  expect lcp < 0.001ms --timeout-ms 200\n",
+    )
+    .unwrap();
+    let (code, out) = primavera(&["run", file.to_str().unwrap(), "--base-url", &site.1]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("1 passed") && out.contains("1 failed"), "{out}");
+    assert!(out.contains("expected lcp < 0.001 ms within 200 ms; saw "), "{out}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn a_trace_records_each_step_and_reads_back() {
     let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
     let dir = std::env::temp_dir().join(format!("pv-trace-{}", std::process::id()));

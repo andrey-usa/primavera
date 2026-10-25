@@ -17,6 +17,7 @@
 //! expect request POST /api/orders json $.total is 36
 //! expect download report-*.csv
 //! expect no errors
+//! expect lcp < 2.5s                      (also fcp, ttfb, load in ms or s; cls)
 //! expect not --selector .toast visible   (any expectation can be negated)
 //! expect text "Saved" --soft             (noted, the scenario goes on, fails at the end)
 //! ```
@@ -82,6 +83,33 @@ pub enum Subject {
     /// `screenshot <name> [<target>]`: the page (or an element) as its
     /// baseline PNG beside the `.pv` file shows it.
     Screenshot(Shot),
+    /// A measure of the current page's load (see [`METRICS`]): its value in
+    /// milliseconds (`cls`: the layout shift score).
+    Metric(String),
+}
+
+/// `expect <metric> <comparison> <value>`: the page's Core Web Vitals and
+/// load times, as the browser measured them for the current document.
+pub const METRICS: &[&str] = &["lcp", "fcp", "ttfb", "load", "cls"];
+
+/// A metric's limit as a number: milliseconds for the times (`2.5s`,
+/// `800ms`, a bare number is ms), the score itself for `cls`.
+fn metric_value(metric: &str, raw: &str) -> Result<String, String> {
+    let bad = || match metric {
+        "cls" => format!("cls takes a score like 0.1, not {raw:?}"),
+        _ => format!("{metric} takes a time like 2.5s or 800ms, not {raw:?}"),
+    };
+    let (num, scale) = match (metric, raw.strip_suffix("ms"), raw.strip_suffix('s')) {
+        ("cls", _, _) => (raw, 1.0),
+        (_, Some(n), _) => (n, 1.0),
+        (_, None, Some(n)) => (n, 1000.0),
+        _ => (raw, 1.0),
+    };
+    let v: f64 = num.trim().parse().map_err(|_| bad())?;
+    if !v.is_finite() || v < 0.0 {
+        return Err(bad());
+    }
+    Ok((v * scale).to_string())
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -518,6 +546,16 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
             let (m, v) = tail(&words[1..], "url")?;
             (Subject::Url, m, v)
         }
+        metric if METRICS.contains(&metric) => {
+            let (m, v) = tail(&words[1..], metric)?;
+            if !matches!(m, Matcher::Lt | Matcher::Le | Matcher::Gt | Matcher::Ge) {
+                return Err(format!(
+                    "expect {metric} <, <=, > or >= a value (like `expect {metric} < {}`)",
+                    if metric == "cls" { "0.1" } else { "2.5s" }
+                ));
+            }
+            (Subject::Metric(metric.to_string()), m, metric_value(metric, &v)?)
+        }
         "title" => {
             let (m, v) = tail(&words[1..], "title")?;
             (Subject::Title, m, v)
@@ -700,6 +738,13 @@ mod tests {
 
     #[test]
     fn subjects_and_matchers_parse() {
+        let e = p("lcp < 2.5s").unwrap();
+        assert_eq!((e.subject, e.matcher, e.value.as_str()), (Subject::Metric("lcp".into()), Matcher::Lt, "2500"));
+        assert_eq!(p("ttfb <= 800ms").unwrap().value, "800");
+        assert_eq!(p("load < 3000").unwrap().value, "3000");
+        assert_eq!(p("cls < 0.1").unwrap().value, "0.1");
+        assert!(p("lcp is 2s").unwrap_err().contains("<, <="));
+        assert!(p("fcp < fast").unwrap_err().contains("2.5s or 800ms"));
         let e = p("url ends-with /cart").unwrap();
         assert_eq!((e.subject, e.matcher, e.value.as_str()), (Subject::Url, Matcher::EndsWith, "/cart"));
         let e = p("text \"Thank you\"").unwrap();

@@ -74,6 +74,7 @@ expect storage local cart contains sku-1
 expect download report-*.csv               # then ${download.path}
 expect console contains ready
 expect no errors
+expect lcp < 2.5s                          # fcp, ttfb, load (ms or s); cls < 0.1
 expect not --selector .toast visible       # any of them negated
 expect text "Saved" --timeout-ms 10000
 expect text "Saved" --soft                 # noted; the scenario fails at its end
