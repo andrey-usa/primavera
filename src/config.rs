@@ -47,6 +47,8 @@ pub struct Profile {
     pub allure: Option<String>,
     pub secrets: Option<String>,
     pub chromium: Option<String>,
+    /// `chrome` (the default) or `lightpanda`.
+    pub engine: Option<String>,
     pub evidence: Option<String>,
     pub headed: Option<bool>,
     /// `on-failure`, `all` or `off`.
@@ -104,6 +106,7 @@ impl Profile {
             allure,
             secrets,
             chromium,
+            engine,
             evidence,
             headed,
             trace,
@@ -140,6 +143,7 @@ impl Profile {
         flag("--allure", self.allure.clone());
         flag("--secrets", self.secrets.clone());
         flag("--chromium", self.chromium.clone());
+        flag("--engine", self.engine.clone());
         flag("--evidence", self.evidence.clone());
         flag("--trace", self.trace.clone());
         flag(

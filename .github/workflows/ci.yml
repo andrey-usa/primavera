@@ -179,3 +179,44 @@ jobs:
           ms=$(( ($(date +%s%N) - start) / 1000000 ))
           grep -q 'failures="0"' out/junit.xml
           echo "::notice title=primavera image ${{ matrix.os }}::one scenario, docker run to exit: ${ms} ms"
+
+  lightpanda:
+    # The smoke tier: the suite's site scenarios on Lightpanda, but the three
+    # that need layout or a second tab (s19 hover, s20 new tab, s25 the
+    # request read after the page left).
+    name: "lightpanda smoke"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: primavera
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: primavera
+      - uses: actions/checkout@v7
+        with:
+          repository: andrey-usa/navigera
+          ref: ${{ env.NAVIGERA_REF }}
+          path: navigera
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          toolchain: stable
+          cache: false
+      - name: Lightpanda 1.0.1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download 1.0.1 --repo lightpanda-io/browser --pattern lightpanda-x86_64-linux --dir "$RUNNER_TEMP/lp"
+          chmod +x "$RUNNER_TEMP/lp/lightpanda-x86_64-linux"
+          echo "LIGHTPANDA_BIN=$RUNNER_TEMP/lp/lightpanda-x86_64-linux" >> "$GITHUB_ENV"
+      - name: Smoke
+        env:
+          LIGHTPANDA_DISABLE_TELEMETRY: "1"
+        run: |
+          cargo build --locked
+          python3 bench/suite40/site/server.py --port 18001 > site.out 2>&1 &
+          for _ in $(seq 150); do curl -sf -o /dev/null http://127.0.0.1:18001/ && break; sleep 0.2; done
+          files=$(ls bench/suite40/pv/s*.pv | grep -v -e s19- -e s20- -e s25-)
+          ./target/debug/primavera run $files --base-url http://127.0.0.1:18001 --engine lightpanda --workers 4 | tee lp.log
+          echo "::notice title=primavera on Lightpanda::$(tail -1 lp.log)"

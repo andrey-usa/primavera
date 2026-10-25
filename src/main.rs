@@ -81,6 +81,7 @@ run options:
   --wait-ms <ms>        how long a step waits for its element (navigera's default 5000)
   --headed              show the browser
   --chromium <path>     the browser to run
+  --engine lightpanda   run on Lightpanda (no layout: a fast smoke tier; screenshots and pixel checks fail)
   --evidence <dir>      failure screenshots and downloads (default .primavera/runs/<time>)
   --pause-on-failure    keep the browser at a failure, open to `navigera --attach`, until Enter (one worker)
 
@@ -196,6 +197,13 @@ fn parse_args() -> Result<Args, String> {
             "--trace" => opts.trace = trace::Trace::parse(&val("--trace")?)?,
             "--compare-report" => opts.compare_report = expect::report_kinds(&val("--compare-report")?)?,
             "--chromium" => opts.chromium = Some(val("--chromium")?),
+            "--engine" => {
+                let e = val("--engine")?;
+                if e != "chrome" && e != "lightpanda" {
+                    return Err(format!("--engine takes chrome or lightpanda, not {e:?}"));
+                }
+                opts.engine = e;
+            }
             "--evidence" => opts.evidence = PathBuf::from(val("--evidence")?),
             "--workers" | "-j" => {
                 let v = val("--workers")?;
@@ -527,7 +535,7 @@ fn run(args: Args) -> ExitCode {
     let mut owner = None;
     let mut forks: Vec<Option<runner::Runner>> = (0..workers).map(|_| None).collect();
     // (One worker needs no sharing: its own browser is the one browser.)
-    if args.isolation == "context" && workers > 1 {
+    if args.isolation == "context" && workers > 1 && opts.engine != "lightpanda" {
         match runner::Runner::launch(opts.clone()) {
             Ok(r) => {
                 for slot in forks.iter_mut() {

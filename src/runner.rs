@@ -38,6 +38,8 @@ pub struct Options {
     pub vars: BTreeMap<String, String>,
     pub headed: bool,
     pub chromium: Option<String>,
+    /// navigera's engine: `chrome` or `lightpanda`.
+    pub engine: String,
     /// How long an `expect` retries (ms) unless it says otherwise.
     pub expect_ms: u64,
     /// navigera's element wait for steps (`--wait-ms`).
@@ -71,6 +73,10 @@ impl Options {
             vars: BTreeMap::new(),
             headed: false,
             chromium: None,
+            engine: std::env::var("NAVIGERA_ENGINE")
+                .ok()
+                .filter(|e| !e.trim().is_empty())
+                .unwrap_or_else(|| "chrome".into()),
             expect_ms: 5000,
             wait_ms: None,
             grep: None,
@@ -232,6 +238,9 @@ pub fn jobs(suites: &[Suite], opts: &Options) -> Vec<Job> {
 
 pub struct Runner {
     driver: Driver,
+    /// What launched it: Lightpanda (one context per process) is launched
+    /// again for each scenario.
+    config: SessionConfig,
     opts: Options,
     fresh: bool,
     attempt: u32,
@@ -245,6 +254,7 @@ impl Runner {
         let config = SessionConfig {
             headed: opts.headed,
             chromium: opts.chromium.clone(),
+            engine: opts.engine.clone(),
             wait_ms: opts.wait_ms,
             // A pause leaves the browser to another navigera session: it
             // attaches over the DevTools port.
@@ -252,7 +262,7 @@ impl Runner {
             ..SessionConfig::default()
         };
         let driver = Driver::launch(&config)?;
-        Ok(Runner { driver, opts, fresh: true, attempt: 1, rep: 0 })
+        Ok(Runner { driver, config, opts, fresh: true, attempt: 1, rep: 0 })
     }
 
     /// The browser, as the last scenario left it.
@@ -263,7 +273,14 @@ impl Runner {
     /// Another runner on this one's browser, in a browser context of its
     /// own: a worker without a browser of its own.
     pub fn fork(&self) -> anyhow::Result<Self> {
-        Ok(Runner { driver: self.driver.fork()?, opts: self.opts.clone(), fresh: true, attempt: 1, rep: 0 })
+        Ok(Runner {
+            driver: self.driver.fork()?,
+            config: self.config.clone(),
+            opts: self.opts.clone(),
+            fresh: true,
+            attempt: 1,
+            rep: 0,
+        })
     }
 
     /// A clean browser context for every scenario but the first one of
@@ -274,7 +291,14 @@ impl Runner {
         if fresh {
             return Ok(());
         }
-        self.driver.run_op(&Command::Reset { all: true }).map(|_| ()).map_err(|e| {
+        let clean = if navigera::browser::is_lightpanda(&self.config.engine) {
+            Driver::launch(&self.config).map(|d| {
+                std::mem::replace(&mut self.driver, d).session().close();
+            })
+        } else {
+            self.driver.run_op(&Command::Reset { all: true }).map(|_| ())
+        };
+        clean.map_err(|e| {
             Box::new(Failure {
                 line,
                 text: "(reset)".into(),
@@ -773,13 +797,7 @@ impl Runner {
         dir: &Path,
         path: PathBuf,
     ) -> Result<PathBuf, String> {
-        let mut aux = Runner {
-            driver: self.driver.fork().map_err(|e| format!("auth {}: {e:#}", auth.name))?,
-            opts: self.opts.clone(),
-            fresh: true,
-            attempt: 1,
-            rep: 0,
-        };
+        let mut aux = self.fork().map_err(|e| format!("auth {}: {e:#}", auth.name))?;
         let label = format!("auth {}", auth.name);
         let mut scope = Scope::new(suite, &label, BTreeMap::new(), &self.opts, &BTreeMap::new());
         let file = auth.file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();

@@ -239,7 +239,7 @@ primavera run [<file.pv|file.feature|dir>...] [--base-url <url>] [--var k=v] [--
               [--workers <n|auto>|-j <n>] [--isolation context|browser] [--retries <n>] [--fail-on-flaky] [--shard <i/n>]
               [--repeat <n>] [--shuffle [<seed>]]
               [--reporter console|jsonl|github] [--junit <file>] [--cucumber <file>] [--allure <dir>] [--html <file>] [--json]
-              [--timeout-ms <ms>] [--wait-ms <ms>] [--headed] [--chromium <path>]
+              [--timeout-ms <ms>] [--wait-ms <ms>] [--headed] [--chromium <path>] [--engine chrome|lightpanda]
               [--secrets <file>] [--evidence <dir>] [--pause-on-failure] [--trace on-failure|all] [--update-screenshots]
               [--compare-report html,json,rows|none] [--config <file>] [--env <name>]
 primavera lint [<file.pv|file.feature|dir>...]
@@ -270,6 +270,14 @@ primavera --version
   at 4 workers than a browser each; `--isolation browser` gives each its
   own); the longest start first (by `.primavera/timings.json`, which each
   run updates; the first run goes in file order).
+- `--engine lightpanda` (or `engine = "lightpanda"` in a profile) runs on
+  [Lightpanda](https://github.com/lightpanda-io/browser) (`$LIGHTPANDA_BIN`
+  or `lightpanda` on the PATH), a new Lightpanda for each scenario (it has
+  one context per process): less memory, no layout. A smoke tier, not a
+  replacement: hover-revealed elements, new tabs, screenshots and `ax`
+  pixels need Chrome. On the 40-scenario suite's 25 site scenarios it
+  passes 22, and is not faster: 22 s against Chrome's 11 s at one worker
+  (half of it the three failures' waits).
 - `--html report.html` writes the run as one page that needs nothing
   else to open: failed scenarios first and open, each with its steps and
   their times, the failure (message, where the page was, what came
