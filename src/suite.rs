@@ -1240,6 +1240,16 @@ mod tests {
     }
 
     #[test]
+    fn variables_reach_values_checked_at_parse_time() {
+        // A flow's arguments fill a count and a regex; they're checked when filled in (T-0058).
+        let text = "flow rows(n, re)\n  expect --selector tr count is ${n}\n  expect title matches ${re}\n  expect request GET /api/* count >= ${n}\nscenario \"x\"\n  run rows 3 ^Shop\n";
+        let mut s = parse(Path::new("t.pv"), text).unwrap();
+        resolve(std::slice::from_mut(&mut s)).unwrap();
+        assert!(parse(Path::new("t.pv"), "scenario \"x\"\n  expect --selector tr count is three\n").is_err());
+        assert!(parse(Path::new("t.pv"), "scenario \"x\"\n  expect title matches (\n").is_err());
+    }
+
+    #[test]
     fn exec_takes_its_checks_under_it_and_runs_beside_the_file() {
         let text = "scenario \"x\"\n  exec --timeout-ms 900 ./seed.sh ${who}\n    expect exit 0\n  exec psql -c \"select 1\"\n  expect ax matches\n    - button \"Go\"\n\n    - link\n  goto /\n";
         let mut s = parse(Path::new("dir/t.pv"), text).unwrap();

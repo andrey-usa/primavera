@@ -209,7 +209,9 @@ fn tail(words: &[String], what: &str) -> Result<(Matcher, String), String> {
     })?;
     match words.len() {
         2 => {
-            if m == Matcher::Matches {
+            // A `${var}` (a flow's or a step block's argument) is checked once
+            // it is filled in.
+            if m == Matcher::Matches && !words[1].contains("${") {
                 regex::Regex::new(&words[1]).map_err(|e| format!("bad regular expression {:?}: {e}", words[1]))?;
             }
             Ok((m, words[1].clone()))
@@ -398,7 +400,9 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
                 }
                 Some("count") => {
                     let (m, v) = tail(&rest[1..], "count")?;
-                    v.parse::<f64>().map_err(|_| format!("count compares with a number, not {v:?}"))?;
+                    if !v.contains("${") {
+                        v.parse::<f64>().map_err(|_| format!("count compares with a number, not {v:?}"))?;
+                    }
                     (Subject::Request { method, url, status, read: RequestRead::Count }, m, v)
                 }
                 Some(other) => {
@@ -484,7 +488,9 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
                         return Err("count takes one --selector <css>".into());
                     }
                     let (m, v) = tail(&rest[1..], "count")?;
-                    v.parse::<f64>().map_err(|_| format!("count compares with a number, not {v:?}"))?;
+                    if !v.contains("${") {
+                        v.parse::<f64>().map_err(|_| format!("count compares with a number, not {v:?}"))?;
+                    }
                     (Subject::Target { flags, prop: Prop::Count }, m, v)
                 }
                 other => {

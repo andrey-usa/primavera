@@ -153,7 +153,9 @@ milestones are in agent-guidance `plans/prova.md`.
 | `not …` | any of them, negated |
 
   `--soft` on any `expect` notes a failure and goes on; the scenario fails
-  at its end with all of them.
+  at its end with all of them. A `${var}` can stand for any compared value
+  (a count, a regex), checked once it is filled in; `--timeout-ms` takes a
+  number as written.
 
   ```text
   expect ax --role form --name Checkout matches
