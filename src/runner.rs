@@ -831,15 +831,45 @@ impl Runner {
         let freeze = format!(
             "(() => {{ const s = document.createElement('style'); s.id = '__pv_freeze'; \
              s.textContent = '*,*::before,*::after{{animation:none!important;transition:none!important;caret-color:transparent!important}}'; \
-             document.documentElement.append(s); for (const css of {masks}) for (const e of document.querySelectorAll(css)) {{ \
+             document.documentElement.append(s); const n = []; for (const css of {masks}) {{ const all = document.querySelectorAll(css); \
+             n.push(all.length); for (const e of all) {{ \
              const r = e.getBoundingClientRect(); const m = document.createElement('div'); m.className = '__pv_mask'; \
              m.style.cssText = `position:absolute;left:${{r.left + scrollX}}px;top:${{r.top + scrollY}}px;width:${{r.width}}px;height:${{r.height}}px;background:#ff00ff;z-index:2147483647;pointer-events:none`; \
-             document.documentElement.append(m); }} return [scrollX, scrollY, devicePixelRatio]; }})()"
+             document.documentElement.append(m); }} }} return [scrollX, scrollY, devicePixelRatio, n]; }})()"
         );
         let unfreeze = "(() => { document.getElementById('__pv_freeze')?.remove(); for (const m of document.querySelectorAll('.__pv_mask')) m.remove(); return 1; })()";
+        // The target in view first: scrolled inside its scroll containers
+        // and frames, which a full-page capture shows only as they stand.
+        if !flags.is_empty() {
+            let mut w = vec!["scroll".to_string()];
+            w.extend(flags.iter().cloned());
+            self.command(&w)?;
+        }
         let at = self.command(&["eval".into(), freeze])?;
         let n = |i: usize| at.get(i).and_then(Value::as_f64).unwrap_or(0.0);
         let (sx, sy, dpr) = (n(0), n(1), n(2).max(1.0));
+        // A mask that hides nothing would let what it was for into the baseline.
+        let counts = at.get(3).and_then(Value::as_array).cloned().unwrap_or_default();
+        if let Some((css, _)) = shot.masks.iter().zip(&counts).find(|(_, c)| c.as_u64() == Some(0)) {
+            let _ = self.command(&["eval".into(), unfreeze.into()]);
+            return Err(format!(
+                "--mask {css:?} matches nothing on the page (masks are CSS selectors of the top page)"
+            ));
+        }
+        // Its box where the capture will have it: page pixels, frames' offsets in.
+        let target = if flags.is_empty() {
+            None
+        } else {
+            let mut w = vec!["get".to_string(), "box".into()];
+            w.extend(flags.iter().cloned());
+            match self.command(&w) {
+                Ok(b) => Some(b),
+                Err(e) => {
+                    let _ = self.command(&["eval".into(), unfreeze.into()]);
+                    return Err(e);
+                }
+            }
+        };
         let tmp = self.opts.evidence.join(format!("{stem}-{}-taking.png", shot.name));
         let _ = std::fs::create_dir_all(&self.opts.evidence);
         let mut words = vec!["screenshot".to_string(), "--path".into(), tmp.display().to_string()];
@@ -852,10 +882,7 @@ impl Runner {
         let bytes = std::fs::read(&tmp).map_err(|e| format!("screenshot {}: {e}", tmp.display()))?;
         let _ = std::fs::remove_file(&tmp);
         let mut img = crate::shot::decode(&bytes)?;
-        if !flags.is_empty() {
-            let mut w = vec!["get".to_string(), "box".into()];
-            w.extend(flags.iter().cloned());
-            let b = self.command(&w)?;
+        if let Some(b) = target {
             let f = |k: &str| b.get(k).and_then(Value::as_f64).unwrap_or(0.0);
             let px = |v: f64| (v * dpr).round().max(0.0) as u32;
             img = crate::shot::crop(&img, px(f("x") + sx), px(f("y") + sy), px(f("width")), px(f("height")));

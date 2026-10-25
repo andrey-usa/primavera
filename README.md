@@ -172,7 +172,10 @@ milestones are in agent-guidance `plans/prova.md`.
   writes it and the step fails, so a person looks at it first;
   `--update-screenshots` writes or replaces baselines and passes. While it
   is taken, animations and transitions stop, the caret hides and each
-  `--mask` element is painted over in magenta. Two pixels differ when their
+  `--mask` element is painted over in magenta (a mask that matches nothing
+  fails the step). An element is scrolled into view first, inside its
+  scroll containers and frames, and cropped where it is on the page, in an
+  iframe too. Two pixels differ when their
   colour distance is over `--threshold` (0 to 1); a mismatch writes this
   run's image and a diff (the differing pixels red) to the evidence
   directory and names both.

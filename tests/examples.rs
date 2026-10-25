@@ -374,6 +374,60 @@ fn screenshots_match_their_baselines() {
 }
 
 #[test]
+fn element_screenshots_find_their_element_in_frames_and_scroll_containers() {
+    let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
+    let dir = std::env::temp_dir().join(format!("pv-shots-el-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // A button below the fold of a scroll box, another in an iframe further down.
+    let solid = "width:80px;height:30px;border:0;background:rgb(0,0,255)";
+    std::fs::write(
+        dir.join("page.js"),
+        format!(
+            "() => {{ document.body.innerHTML = `<div style=\"height:60px;overflow:auto\"><div style=\"height:400px\"></div>\
+             <button id=low style=\"{solid}\"></button></div><div style=\"height:300px\"></div>\
+             <iframe id=f style=\"margin-left:40px;border:5px solid red\" srcdoc=\"<body style='margin:20px'><button id=framed style='{solid}'></button>\"></iframe>`; return 1; }}"
+        ),
+    )
+    .unwrap();
+    let pv = dir.join("el.pv");
+    std::fs::write(
+        &pv,
+        format!(
+            "scenario \"Elements\"\n  goto /login\n  eval --file \"{}\"\n  wait --selector \"#framed\"\n  \
+             expect screenshot low --selector \"#low\"\n  expect screenshot framed --selector \"#framed\"\n\
+             scenario \"A mask on nothing\"\n  goto /login\n  expect screenshot page --mask \"#not-there\"\n",
+            dir.join("page.js").display().to_string().replace('\\', "/")
+        ),
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_primavera"))
+        .args(["run", pv.to_str().unwrap(), "--base-url", &site.1, "--update-screenshots", "--timeout-ms", "2000"])
+        .args(["--evidence", dir.join("ev").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{text}");
+    assert!(text.contains("--mask \"#not-there\" matches nothing on the page"), "{text}");
+    // Each crop is the button, solid blue to its corners.
+    for name in ["low", "framed"] {
+        let path = dir.join("el.pv.screenshots").join(format!("{name}-{}.png", std::env::consts::OS));
+        let mut reader = png::Decoder::new(std::fs::File::open(&path).unwrap()).read_info().unwrap();
+        let mut buf = vec![0; reader.output_buffer_size()];
+        let info = reader.next_frame(&mut buf).unwrap();
+        let px = info.color_type.samples();
+        let at = |x: u32, y: u32| {
+            let i = ((y * info.width + x) as usize) * px;
+            (buf[i], buf[i + 1], buf[i + 2])
+        };
+        let (w, h) = (info.width, info.height);
+        for (x, y) in [(1, 1), (w - 2, 1), (w / 2, h / 2), (1, h - 2), (w - 2, h - 2)] {
+            assert_eq!(at(x, y), (0, 0, 255), "{name} at {x},{y} of {w}x{h}: {}", path.display());
+        }
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn a_trace_records_each_step_and_reads_back() {
     let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
     let dir = std::env::temp_dir().join(format!("pv-trace-{}", std::process::id()));
