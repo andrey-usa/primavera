@@ -241,8 +241,9 @@ primavera trace <dir> [<line>]
   closest, the note) and its screenshot in the page (up to 2 MB; a
   bigger one is linked); flaky ones show how their first try failed.
   Secrets are masked as in the console. A screenshot two scenarios share
-  (a failed `before all`) is in the page once; a bigger one is a link
-  relative to the report, so upload the report and `.primavera/runs/`
+  (a failed `before all`) is in the page once; a bigger one, and any once
+  the page holds 10 MB of them (failures first), is a link relative to the
+  report, so upload the report and `.primavera/runs/`
   together. With `--repeat`, a pass count per scenario comes first. A run
   that finds no scenario (exit 2) writes no report.
 - `--allure <dir>` writes Allure 2 results for `allure generate <dir>` or an

@@ -272,6 +272,16 @@ fn base64(bytes: &[u8]) -> String {
 /// Screenshots up to this size go into the report itself; bigger ones are
 /// linked, so a run with many failures still opens quickly.
 const EMBED_MAX: u64 = 2 * 1024 * 1024;
+/// The most a report embeds in all (as base64); the screenshots after that
+/// are links, so a run of many failures still opens fast.
+const REPORT_BUDGET: usize = 10 * 1024 * 1024;
+
+/// What a report has embedded: which screenshots, and how many bytes.
+#[derive(Default)]
+struct Embeds {
+    seen: HashSet<PathBuf>,
+    bytes: usize,
+}
 
 fn failure_html(out: &mut String, f: &Failure, title: &str) {
     let _ = write!(
@@ -301,23 +311,26 @@ fn failure_html(out: &mut String, f: &Failure, title: &str) {
 /// A failure's screenshot: in the page (once per file: a `before all`
 /// failure shared by every scenario of its file is embedded the first
 /// time), or a link relative to the report when it is too big.
-fn screenshot_html(out: &mut String, f: &Failure, report_dir: &Path, embedded: &mut HashSet<PathBuf>) {
+fn screenshot_html(out: &mut String, f: &Failure, report_dir: &Path, embedded: &mut Embeds) {
     let Some(s) = &f.screenshot else { return };
-    if embedded.contains(s) {
+    if embedded.seen.contains(s) {
         out.push_str("<div class=dim>screenshot: the same one as above</div>");
         return;
     }
     let size = std::fs::metadata(s).map(|m| m.len()).ok();
     match (size, std::fs::read(s)) {
-        (Some(n), Ok(png)) if n <= EMBED_MAX => {
-            embedded.insert(s.clone());
-            let _ =
-                write!(out, "<img alt=\"screenshot at the failure\" src=\"data:image/png;base64,{}\">", base64(&png));
+        (Some(n), Ok(png)) if n <= EMBED_MAX && embedded.bytes + (n as usize).div_ceil(3) * 4 <= REPORT_BUDGET => {
+            embedded.seen.insert(s.clone());
+            let b64 = base64(&png);
+            embedded.bytes += b64.len();
+            let _ = write!(out, "<img alt=\"screenshot at the failure\" src=\"data:image/png;base64,{b64}\">");
         }
         (Some(n), _) => {
+            let why =
+                if n > EMBED_MAX { "too big to put in the page" } else { "the page's 10 MB of screenshots is spent" };
             let _ = write!(
                 out,
-                "<div><a href=\"{}\">screenshot</a> <span class=dim>({:.1} MB, too big to put in the page)</span></div>",
+                "<div><a href=\"{}\">screenshot</a> <span class=dim>({:.1} MB, {why})</span></div>",
                 esc(&href(s, report_dir)),
                 n as f64 / 1_048_576.0
             );
@@ -379,7 +392,7 @@ pub fn tally(results: &[ScenarioResult]) -> Vec<(String, u32, u32)> {
 /// how a flaky one failed first) open, with their screenshot in the page.
 pub fn html(results: &[ScenarioResult], ms: f64, report_dir: &Path) -> String {
     let mut out = String::new();
-    let mut embedded = HashSet::new();
+    let mut embedded = Embeds::default();
     let sum = summary(results, ms);
     let _ = write!(
         out,
@@ -550,6 +563,27 @@ mod tests {
         let again = ScenarioResult { rep: 1, ..pass.clone() };
         let h = html(&[pass.clone(), again, fail], 1000.0, &dir);
         assert!(h.contains("<tr class=ok><td>2/2</td><td>/x/shop.pv  Adds &lt;one&gt;</td></tr>"), "{h}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_report_of_many_failures_stays_under_its_budget() {
+        let dir = std::env::temp_dir().join(format!("pv-budget-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut results = Vec::new();
+        for k in 0..12 {
+            // 1.5 MB each: embeddable alone, not all together.
+            let shot = dir.join(format!("s{k}.png"));
+            std::fs::write(&shot, vec![k as u8; 1_500_000]).unwrap();
+            let mut r = fail_case();
+            r.name = format!("Fails {k}");
+            r.failure.as_mut().unwrap().screenshot = Some(shot);
+            results.push(r);
+        }
+        let h = html(&results, 1.0, &dir);
+        assert!(h.len() <= REPORT_BUDGET + 200_000, "{} bytes", h.len());
+        assert_eq!(h.matches("data:image/png").count(), 5);
+        assert_eq!(h.matches("10 MB of screenshots is spent").count(), 7);
         std::fs::remove_dir_all(&dir).ok();
     }
 
