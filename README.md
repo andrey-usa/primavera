@@ -440,6 +440,23 @@ that), with navigera at `navigera-ref`. Failures are annotations on the
 lines that failed; the `evidence` output is the directory holding their
 screenshots, for `actions/upload-artifact`.
 
+## Container
+
+`Dockerfile` builds an image with primavera and Debian's headless Chromium,
+amd64 or arm64, from the directory holding both checkouts (see Building):
+
+```console
+$ docker build -f primavera/Dockerfile -t primavera .
+$ docker run --rm --network host -v "$PWD/tests:/tests:ro" primavera run /tests --base-url http://127.0.0.1:3000
+```
+
+It runs as an unprivileged user (any uid, so OpenShift's random ones too),
+with a read-only root filesystem if asked (`HOME=/tmp` and a `/tmp` to
+write to), and without Chrome's own sandbox: a container without user
+namespaces can't give Chrome one, and the container is the boundary.
+`examples/kubernetes/job.yaml` is a Job: the tests from a ConfigMap, JUnit
+and evidence in `/work/out`, a memory-backed `/dev/shm`.
+
 ## Building
 
 primavera links navigera as a library, checked out beside it:

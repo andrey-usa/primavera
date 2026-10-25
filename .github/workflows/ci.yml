@@ -140,3 +140,42 @@ jobs:
         run: |
           grep -q 'tests="1"' t/report.xml && grep -q 'failures="0"' t/report.xml
           echo "evidence: $EVIDENCE"
+
+  container:
+    # The image (Dockerfile) on amd64 and arm64, run the way the Kubernetes
+    # example runs it: another uid, read-only root, no capabilities, the
+    # tests mounted, against the 40-scenario suite's site.
+    name: "the image (${{ matrix.os }})"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: primavera
+      - uses: actions/checkout@v7
+        with:
+          repository: andrey-usa/navigera
+          ref: ${{ env.NAVIGERA_REF }}
+          path: navigera
+      - name: Build
+        run: |
+          docker build -f primavera/Dockerfile -t primavera:ci .
+          docker image ls primavera:ci --format 'image {{.Size}}'
+      - name: Run
+        run: |
+          python3 primavera/bench/suite40/site/server.py --port 18001 > site.out 2>&1 &
+          for _ in $(seq 150); do curl -sf -o /dev/null http://127.0.0.1:18001/ && break; sleep 0.2; done
+          mkdir -p t out && chmod 777 out
+          printf 'scenario "The shop opens"\n  goto /\n  expect url ends-with /shop\n  expect title contains Acme\n  expect lcp < 10s\n' > t/shop.pv
+          start=$(date +%s%N)
+          docker run --rm --network host --user 12345 --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --tmpfs /tmp --shm-size 512m -e HOME=/tmp \
+            -v "$PWD/t:/tests:ro" -v "$PWD/out:/work" \
+            primavera:ci run /tests --base-url http://127.0.0.1:18001 --junit /work/junit.xml
+          ms=$(( ($(date +%s%N) - start) / 1000000 ))
+          grep -q 'failures="0"' out/junit.xml
+          echo "::notice title=primavera image ${{ matrix.os }}::one scenario, docker run to exit: ${ms} ms"
