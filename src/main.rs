@@ -11,7 +11,7 @@ mod suite;
 
 use std::collections::BTreeMap;
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::{mpsc, Condvar, Mutex};
 use std::time::Instant;
@@ -458,16 +458,8 @@ fn run(args: Args) -> ExitCode {
     let ms = started.elapsed().as_secs_f64() * 1000.0;
     if console && args.repeat > 1 {
         // How often each scenario passed across its runs.
-        let mut tally: BTreeMap<String, (u32, u32)> = BTreeMap::new();
-        for r in &results {
-            let e = tally.entry(format!("{}  {}", r.file.display(), r.base_name())).or_default();
-            e.1 += 1;
-            if r.passed() {
-                e.0 += 1;
-            }
-        }
         let mut text = String::from("repeats:\n");
-        for (name, (ok, n)) in &tally {
+        for (name, ok, n) in &report::tally(&results) {
             let mark = if ok == n { "    " } else { "FLAKY " };
             text.push_str(&format!("  {mark}{ok}/{n}  {name}\n"));
         }
@@ -506,7 +498,8 @@ fn run(args: Args) -> ExitCode {
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             let _ = std::fs::create_dir_all(dir);
         }
-        match std::fs::write(path, report::html(&results, ms)) {
+        let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        match std::fs::write(path, report::html(&results, ms, dir)) {
             Ok(()) => eprintln!("report {}", path.display()),
             Err(e) => eprintln!("could not write {}: {e}", path.display()),
         }

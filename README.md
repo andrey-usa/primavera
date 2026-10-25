@@ -187,7 +187,11 @@ primavera list [<file.pv|dir>...]
   their times, the failure (message, where the page was, what came
   closest, the note) and its screenshot in the page (up to 2 MB; a
   bigger one is linked); flaky ones show how their first try failed.
-  Secrets are masked as in the console.
+  Secrets are masked as in the console. A screenshot two scenarios share
+  (a failed `before all`) is in the page once; a bigger one is a link
+  relative to the report, so upload the report and `.primavera/runs/`
+  together. With `--repeat`, a pass count per scenario comes first. A run
+  that finds no scenario (exit 2) writes no report.
 - `--retries n` runs a failing scenario again; one that passes then is
   reported FLAKY with how its first try failed. `--fail-on-flaky` fails
   the run on one. `--shard i/n` takes every n-th scenario, for CI matrix

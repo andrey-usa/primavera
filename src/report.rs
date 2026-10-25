@@ -1,7 +1,8 @@
 //! What a run prints, and the JUnit XML CI systems read.
 
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::runner::{Failure, ScenarioResult};
 
@@ -297,29 +298,88 @@ fn failure_html(out: &mut String, f: &Failure, title: &str) {
     out.push_str("</div>");
 }
 
-fn screenshot_html(out: &mut String, f: &Failure) {
-    if let Some(s) = &f.screenshot {
-        let small = std::fs::metadata(s).map(|m| m.len() <= EMBED_MAX).unwrap_or(false);
-        match std::fs::read(s) {
-            Ok(png) if small => {
-                let _ = write!(
-                    out,
-                    "<img alt=\"screenshot at the failure\" src=\"data:image/png;base64,{}\">",
-                    base64(&png)
-                );
-            }
-            _ => {
-                let _ = write!(out, "<div>screenshot <code>{}</code></div>", esc(&rel(s)));
-            }
+/// A failure's screenshot: in the page (once per file: a `before all`
+/// failure shared by every scenario of its file is embedded the first
+/// time), or a link relative to the report when it is too big.
+fn screenshot_html(out: &mut String, f: &Failure, report_dir: &Path, embedded: &mut HashSet<PathBuf>) {
+    let Some(s) = &f.screenshot else { return };
+    if embedded.contains(s) {
+        out.push_str("<div class=dim>screenshot: the same one as above</div>");
+        return;
+    }
+    let size = std::fs::metadata(s).map(|m| m.len()).ok();
+    match (size, std::fs::read(s)) {
+        (Some(n), Ok(png)) if n <= EMBED_MAX => {
+            embedded.insert(s.clone());
+            let _ =
+                write!(out, "<img alt=\"screenshot at the failure\" src=\"data:image/png;base64,{}\">", base64(&png));
+        }
+        (Some(n), _) => {
+            let _ = write!(
+                out,
+                "<div><a href=\"{}\">screenshot</a> <span class=dim>({:.1} MB, too big to put in the page)</span></div>",
+                esc(&href(s, report_dir)),
+                n as f64 / 1_048_576.0
+            );
+        }
+        (None, _) => {
+            let _ = write!(out, "<div class=dim>screenshot <code>{}</code> (gone)</div>", esc(&rel(s)));
         }
     }
+}
+
+/// `target` as a link from a page in `base`: a path relative to it when
+/// they share a root (a report and its evidence uploaded together), else a
+/// file URL.
+fn href(target: &Path, base: &Path) -> String {
+    let abs = |p: &Path| std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
+    let (t, b) = (abs(target), abs(base));
+    let tc: Vec<_> = t.components().collect();
+    let bc: Vec<_> = b.components().collect();
+    let common = tc.iter().zip(&bc).take_while(|(x, y)| x == y).count();
+    let raw = if common == 0 {
+        let p = t.display().to_string().replace('\\', "/");
+        if p.starts_with('/') {
+            format!("file://{p}")
+        } else {
+            format!("file:///{p}")
+        }
+    } else {
+        let mut parts: Vec<String> = std::iter::repeat_n("..".to_string(), bc.len() - common).collect();
+        parts.extend(tc[common..].iter().map(|c| c.as_os_str().to_string_lossy().into_owned()));
+        parts.join("/")
+    };
+    let mut out = String::with_capacity(raw.len());
+    for b in raw.bytes() {
+        if b.is_ascii_alphanumeric() || b"-._~/:".contains(&b) {
+            out.push(b as char);
+        } else {
+            let _ = write!(out, "%{b:02X}");
+        }
+    }
+    out
+}
+
+/// How often each scenario passed across its runs (`--repeat`): its file
+/// and name, passes, runs.
+pub fn tally(results: &[ScenarioResult]) -> Vec<(String, u32, u32)> {
+    let mut t: BTreeMap<String, (u32, u32)> = BTreeMap::new();
+    for r in results {
+        let e = t.entry(format!("{}  {}", r.file.display(), r.base_name())).or_default();
+        e.1 += 1;
+        if r.passed() {
+            e.0 += 1;
+        }
+    }
+    t.into_iter().map(|(k, (ok, n))| (k, ok, n)).collect()
 }
 
 /// The whole run as one HTML file that needs nothing else to open: a
 /// summary, then each scenario with its steps and times, failures (and
 /// how a flaky one failed first) open, with their screenshot in the page.
-pub fn html(results: &[ScenarioResult], ms: f64) -> String {
+pub fn html(results: &[ScenarioResult], ms: f64, report_dir: &Path) -> String {
     let mut out = String::new();
+    let mut embedded = HashSet::new();
     let sum = summary(results, ms);
     let _ = write!(
         out,
@@ -328,6 +388,15 @@ pub fn html(results: &[ScenarioResult], ms: f64) -> String {
         esc(&sum),
         esc(&sum)
     );
+    let counts = tally(results);
+    if counts.iter().any(|(_, _, n)| *n > 1) {
+        out.push_str("<table class=tally><tr><th>passed</th><th>scenario</th></tr>");
+        for (name, ok, n) in &counts {
+            let class = if ok == n { "ok" } else { "bad" };
+            let _ = write!(out, "<tr class={class}><td>{ok}/{n}</td><td>{}</td></tr>", esc(name));
+        }
+        out.push_str("</table>");
+    }
     // Failed first, then flaky, then passed; within each, the order they ran.
     let rank = |r: &ScenarioResult| {
         if !r.passed() {
@@ -363,6 +432,7 @@ pub fn html(results: &[ScenarioResult], ms: f64) -> String {
         }
         for (i, f) in r.retried.iter().enumerate() {
             failure_html(&mut out, f, &format!("try {} failed at", i + 1));
+            screenshot_html(&mut out, f, report_dir, &mut embedded);
         }
         if !r.steps.is_empty() {
             out.push_str("<table><tr><th>line</th><th>step</th><th>time</th></tr>");
@@ -379,7 +449,7 @@ pub fn html(results: &[ScenarioResult], ms: f64) -> String {
             out.push_str("</table>");
         }
         if let Some(f) = &r.failure {
-            screenshot_html(&mut out, f);
+            screenshot_html(&mut out, f, report_dir, &mut embedded);
         }
         for n in &r.notes {
             let _ = write!(out, "<div class=note>{}</div>", esc(n));
@@ -456,14 +526,36 @@ mod tests {
             }),
             ..pass.clone()
         };
-        let h = html(&[pass, fail], 1000.0);
+        let h = html(&[pass.clone(), fail.clone()], 1000.0, &dir);
         assert!(h.find("Total &amp; tax").unwrap() < h.find("Adds &lt;one&gt;").unwrap(), "failed first");
         assert!(h.contains("expect text &quot;&lt;b&gt;&quot;"), "{h}");
         assert!(h.contains(&format!("data:image/png;base64,{}", base64(b"\x89PNG fake"))), "{h}");
         assert!(h.contains("<details class=fail open>") && h.contains("<details class=pass>"), "{h}");
         assert!(h.contains("@smoke") && h.contains("goto /cart"), "{h}");
         assert!(!h.contains("http-equiv") && !h.contains("<script") && !h.contains("src=\"http"), "{h}");
+        assert!(!h.contains("class=tally"), "one run each: no tally");
+        // A flaky scenario shows its first try's screenshot; a screenshot
+        // two scenarios share (a `before all`) is in the page once.
+        let flaky =
+            ScenarioResult { failure: None, retried: vec![fail.failure.clone().unwrap()], attempt: 2, ..pass.clone() };
+        let h = html(&[fail.clone(), flaky], 1000.0, &dir);
+        assert_eq!(h.matches("data:image/png").count(), 1, "{h}");
+        assert!(h.contains("screenshot: the same one as above"), "{h}");
+        // A big one is a link from where the report is.
+        std::fs::write(&shot, vec![0u8; (EMBED_MAX + 1) as usize]).unwrap();
+        let h = html(std::slice::from_ref(&fail), 1000.0, &dir.join("reports"));
+        assert!(h.contains("<a href=\"../shot.png\">screenshot</a>"), "{h}");
+        // Repeats: a pass count per scenario.
+        let again = ScenarioResult { rep: 1, ..pass.clone() };
+        let h = html(&[pass.clone(), again, fail], 1000.0, &dir);
+        assert!(h.contains("<tr class=ok><td>2/2</td><td>/x/shop.pv  Adds &lt;one&gt;</td></tr>"), "{h}");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn links_are_relative_or_file_urls() {
+        assert_eq!(href(Path::new("/a/runs/x y/s.png"), Path::new("/a/reports")), "../runs/x%20y/s.png");
+        assert_eq!(href(Path::new("/a/s.png"), Path::new("/a")), "s.png");
     }
 
     #[test]
