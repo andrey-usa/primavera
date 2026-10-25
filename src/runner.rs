@@ -1352,7 +1352,7 @@ impl Drop for Runner {
     }
 }
 
-fn parse(words: &[String]) -> Result<Command, String> {
+pub(crate) fn parse(words: &[String]) -> Result<Command, String> {
     let parsed =
         parse_args(std::iter::once("navigera".to_string()).chain(words.iter().cloned())).map_err(|e| match e {
             navigera::protocol::ArgsError::Help(_) => format!("`{}` needs more", words.join(" ")),

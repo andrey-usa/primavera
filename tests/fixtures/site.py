@@ -29,6 +29,23 @@ LOGIN = """
 <button onclick="fetch('/session', {method: 'POST', body: pw.value}).then((r) => { if (r.ok) location = '/account'; else document.body.append('wrong password'); })">Sign in</button>
 """
 
+# `/form` is a form; with `?auto=1` it uses itself, as a person would, for
+# `primavera record` with nobody at the browser.
+FORM = """
+<h1>Order</h1>
+<label>Email <input id=email></label>
+<label><input type=checkbox id=gift> Gift wrap</label>
+<label>Size <select id=size><option>Small</option><option>Large</option></select></label>
+<a href=/done id=go>Place order</a>
+<script>
+if (location.search.includes('auto=1')) setTimeout(() => {
+  email.click(); email.value = 'ada@example.com'; email.dispatchEvent(new Event('change', {bubbles: true}));
+  gift.click();
+  size.value = 'Large'; size.dispatchEvent(new Event('change', {bubbles: true}));
+  setTimeout(() => go.click(), 100);
+}, 300);
+</script>
+"""
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
@@ -86,6 +103,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         q = parse_qs(u.query)
+        if u.path == "/form":
+            return self.page(FORM)
+        if u.path == "/done":
+            return self.page("<h1>Thanks</h1>")
         if u.path == "/m1":
             return self.page(M1)
         if u.path == "/api/x":

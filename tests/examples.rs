@@ -532,6 +532,31 @@ fn over_mcp_an_agent_explores_writes_the_test_and_runs_it() {
 }
 
 #[test]
+fn a_recording_becomes_a_scenario_that_passes() {
+    let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
+    let dir = std::env::temp_dir().join(format!("pv-record-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("order.pv");
+    // The page uses itself (`?auto=1`): a field, a checkbox, a select, a link.
+    let out = Command::new(env!("CARGO_BIN_EXE_primavera"))
+        .args(["record", &format!("{}/form?auto=1", site.1), "--headless", "--for", "3"])
+        .args(["--scenario", "Orders", "--out", file.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let pv = std::fs::read_to_string(&file).unwrap();
+    let want = "scenario \"Orders\"\n  goto /form?auto=1\n  fill --role textbox --name Email ada@example.com\n  \
+                check --role checkbox --name \"Gift wrap\"\n  select --role combobox --name Size Large\n  \
+                click --role link --name \"Place order\"\n  expect url ends-with /done\n";
+    assert!(pv.ends_with(want), "{pv}");
+    // Run without the page using itself: the steps do it.
+    std::fs::write(&file, pv.replace("?auto=1", "")).unwrap();
+    let (code, text) = primavera(&["run", file.to_str().unwrap(), "--base-url", &site.1]);
+    assert_eq!(code, 0, "{pv}\n{text}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn a_trace_records_each_step_and_reads_back() {
     let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
     let dir = std::env::temp_dir().join(format!("pv-trace-{}", std::process::id()));

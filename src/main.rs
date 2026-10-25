@@ -11,6 +11,7 @@ mod gherkin;
 mod http;
 mod mcp;
 mod nearest;
+mod record;
 mod report;
 mod runner;
 mod server;
@@ -41,6 +42,8 @@ usage:
   primavera navigera <command…>                 navigera's commands, built in (`primavera navigera -s work goto <url>`)
   primavera from-session <name> [--scenario <s>] [--out <f.pv>]
                                                 what a navigera session did, as a scenario (refs as locators)
+  primavera record <url> [--out <f.pv>] [--scenario <s>] [--headless] [--for <s>]
+                                                a browser to use by hand; what you do becomes a scenario
   primavera mcp [--headed]                      an MCP server: navigera's browser tools and primavera_from_session/run/failure/fix
   primavera skill                               the agent skill (the format and commands, for an AI agent)
   primavera --version
@@ -381,6 +384,7 @@ fn main() -> ExitCode {
     let own: Option<Own> = match std::env::args().nth(1).as_deref() {
         Some("fix") => Some(fix::main),
         Some("from-session") => Some(from_session::main),
+        Some("record") => Some(record::main),
         _ => None,
     };
     if let Some(main) = own {

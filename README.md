@@ -232,6 +232,7 @@ primavera trace <dir> [<line>]
 primavera fix [<file>:<line>] [--use <n>] [--all [--min <p>]]
 primavera navigera <command…>
 primavera from-session <name> [--scenario <name>] [--out <file.pv>]
+primavera record <url> [--out <file.pv>] [--scenario <name>] [--headless] [--for <seconds>]
 primavera mcp [--headed] [--chromium <path>]
 ```
 
@@ -312,6 +313,15 @@ primavera mcp [--headed] [--chromium <path>]
   line. Read it through, keep the expects that matter, add the ones the
   test is for. A session started by a plain `navigera` works too when that
   navigera has `history`.
+- `primavera record <url> --out t.pv` opens a browser to use by hand: each
+  click, field change, check, select, upload and Enter becomes a step as
+  you do it, with the most stable locator that finds the element (the same
+  `locate` as `from-session`, run in the page at that moment, so a click
+  that navigates away is still known), an `expect url` where the page
+  moved, a password as `${secret:PASSWORD}`. The file is rewritten after
+  every step: close the browser or press Ctrl-C to stop. A click into a
+  field isn't a step (its value is); typing in a field twice keeps the
+  last value.
 - `primavera mcp` is the same loop for an agent over MCP (stdio): navigera's
   browser tools (`browser_navigate`, `browser_snapshot`, `browser_click`,
   … one browser for all of them) beside `primavera_from_session` (what

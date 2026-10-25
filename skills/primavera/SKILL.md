@@ -118,6 +118,9 @@ primavera from-session work --out tests/login.pv   # refs become locators
 primavera navigera -s work quit
 ```
 
+A person can record instead: `primavera record <url> --out tests/login.pv`
+opens a browser; what they do becomes the steps.
+
 Then read `tests/login.pv`: keep the proposed `expect url` lines that
 matter, add the `expect` the test is for, and run it.
 
