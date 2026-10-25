@@ -10,6 +10,7 @@ mod nearest;
 mod report;
 mod runner;
 mod server;
+mod shot;
 mod suite;
 
 use std::collections::BTreeMap;
@@ -49,6 +50,7 @@ run options:
                         (workflow annotations; on by itself under GitHub Actions); repeatable
   --config <file>       settings, a [server] and [env.<name>] profiles (default: ./primavera.toml)
   --env <name>          the config's [env.<name>] profile on top of the rest
+  --update-screenshots  a screenshot that differs from its baseline (or has none) becomes it
   --junit <file>        also write JUnit XML
   --cucumber <file>     also write Cucumber JSON for the .feature files (step by step)
   --html <file>         also write the run as one HTML page (steps, times, failures with their screenshot)
@@ -126,6 +128,7 @@ fn parse_args() -> Result<Args, String> {
         secrets: BTreeMap::new(),
         pause: false,
         auth: Default::default(),
+        update_shots: false,
     };
     let mut junit = None;
     let mut cucumber = None;
@@ -179,6 +182,7 @@ fn parse_args() -> Result<Args, String> {
                 opts.wait_ms = Some(v.parse().map_err(|_| format!("--wait-ms takes milliseconds, not {v:?}"))?);
             }
             "--headed" => opts.headed = true,
+            "--update-screenshots" => opts.update_shots = true,
             "--chromium" => opts.chromium = Some(val("--chromium")?),
             "--evidence" => opts.evidence = PathBuf::from(val("--evidence")?),
             "--workers" | "-j" => {

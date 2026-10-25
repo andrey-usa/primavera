@@ -314,6 +314,49 @@ fn a_config_starts_the_app_and_picks_a_profile() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+#[test]
+fn screenshots_match_their_baselines() {
+    let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
+    let dir = std::env::temp_dir().join(format!("pv-shots-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let pv = dir.join("look.pv");
+    std::fs::write(
+        &pv,
+        "scenario \"The page looks as it did\"\n  goto /login\n  \
+         eval \"(document.body.innerHTML = '<h1>Checkout</h1><p id=clock>${run.id}</p><button id=b style=\\\"width:120px;height:30px;background:${color}\\\">Pay</button>', 1)\"\n  \
+         expect screenshot pay --selector \"#b\"\n  expect screenshot page --mask \"#clock\"\n",
+    )
+    .unwrap();
+    let evidence = dir.join("ev").display().to_string();
+    let run = |extra: &[&str]| {
+        let mut args =
+            vec!["run", pv.to_str().unwrap(), "--base-url", &site.1, "--evidence", &evidence, "--timeout-ms", "500"];
+        args.extend_from_slice(extra);
+        let out = Command::new(env!("CARGO_BIN_EXE_primavera")).args(&args).output().expect("run primavera");
+        let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+        (out.status.code().unwrap_or(-1), text)
+    };
+    // No baseline: written, and the step fails until a person has looked.
+    let (code, out) = run(&["--var", "color=blue"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("no baseline yet: wrote"), "{out}");
+    let (code, out) = run(&["--var", "color=blue", "--update-screenshots"]);
+    assert_eq!(code, 0, "{out}");
+    let os = std::env::consts::OS;
+    let shots = dir.join("look.pv.screenshots");
+    let pay = std::fs::read(shots.join(format!("pay-{os}.png"))).unwrap();
+    assert_eq!(&pay[1..4], b"PNG");
+    // The same again matches, the masked clock changing every run.
+    let (code, out) = run(&["--var", "color=blue"]);
+    assert_eq!(code, 0, "{out}");
+    // A different button doesn't, and says where to look.
+    let (code, out) = run(&["--var", "color=red"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("pixels differ") && out.contains("pay-diff.png"), "{out}");
+    assert!(dir.join("ev").join("look.pv-pay-actual.png").exists());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// A GET to the fixture site, its body.
 fn fetch(site: &Site, path: &str) -> String {
     use std::io::{Read, Write};

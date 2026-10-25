@@ -150,6 +150,7 @@ milestones are in agent-guidance `plans/prova.md`.
 | `exit` [`is`] `<n>`, `stdout`/`stderr` + a comparison | what the last `exec` gave |
 | `status` [`is`] `<n>`, `body` + a comparison, `json <$.path>` [+ a comparison], `header <name>` [+ a comparison] | the last `http` answer |
 | `ax [<target>] matches` + the tree indented under it | the page's (or the target's) accessibility tree, as `navigera ax` prints it, holds those lines: partially (`button` matches `button "Place order"`) and in order, a line indented under another inside what that one matched, refs ignored, `/regex/` (spaces allowed) for a name or a value |
+| `screenshot <name> [<target>]` [`--full-page`] [`--threshold 0.2`] [`--max-diff-pixels <n>` \| `--max-diff-ratio <r>`] [`--mask <css>`]… | the viewport (or the element, or the whole page) as its baseline shows it, pixel by pixel; see below |
 | `not …` | any of them, negated |
 
   `--soft` on any `expect` notes a failure and goes on; the scenario fails
@@ -163,6 +164,17 @@ milestones are in agent-guidance `plans/prova.md`.
     - combobox "Country" value="Canada"
     - button "Place order"
   ```
+
+  A screenshot's baseline is beside the `.pv` file, in
+  `<file>.pv.screenshots/<name>-<os>.png` (fonts differ between systems,
+  so each OS keeps its own); keep it with the tests. With none yet the run
+  writes it and the step fails, so a person looks at it first;
+  `--update-screenshots` writes or replaces baselines and passes. While it
+  is taken, animations and transitions stop, the caret hides and each
+  `--mask` element is painted over in magenta. Two pixels differ when their
+  colour distance is over `--threshold` (0 to 1); a mismatch writes this
+  run's image and a diff (the differing pixels red) to the evidence
+  directory and names both.
 
   Copy the lines from `navigera ax` and keep the ones that matter. A miss
   names the first line that has no place and the nearest line of its role

@@ -69,6 +69,23 @@ pub enum Subject {
     },
     /// The last `http` answer: a value in its JSON, or a header.
     Http(HttpRead),
+    /// `screenshot <name> [<target>]`: the page (or an element) as its
+    /// baseline PNG beside the `.pv` file shows it.
+    Screenshot(Shot),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Shot {
+    pub name: String,
+    /// navigera target flags; none for the viewport.
+    pub flags: Vec<String>,
+    pub full_page: bool,
+    /// Colour distance two pixels may have and still match (0..1).
+    pub threshold: f64,
+    pub max_pixels: u64,
+    pub max_ratio: Option<f64>,
+    /// CSS selectors painted over before the shot (a clock, an ad).
+    pub masks: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -308,7 +325,7 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
         };
     }
     let first = words.first().cloned().ok_or(
-        "expect what? (url, title, text, a target, ${var}, js, request, cookie, storage, download, console, no errors, ax, exit, stdout, stderr, status, body, json, header)",
+        "expect what? (url, title, text, a target, ${var}, js, request, cookie, storage, download, console, no errors, ax, screenshot, exit, stdout, stderr, status, body, json, header)",
     )?;
     // A subject with an optional comparison after it: present/truthy without
     // one, gone with `absent`.
@@ -359,6 +376,42 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
             };
             let (m, v) = optional_tail(&words[2..], &first)?;
             (Subject::Http(read), m, v)
+        }
+        "screenshot" => {
+            let usage = "expect screenshot <name> [<target>] [--full-page] [--threshold 0.2] [--max-diff-pixels <n>] [--max-diff-ratio <r>] [--mask <css>]…";
+            let name = words.get(1).ok_or(usage)?.clone();
+            if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c)) {
+                return Err(format!(
+                    "a screenshot name is letters, digits, - _ or . (it names the file), not {name:?}"
+                ));
+            }
+            let mut shot = Shot {
+                name,
+                flags: Vec::new(),
+                full_page: false,
+                threshold: 0.2,
+                max_pixels: 0,
+                max_ratio: None,
+                masks: Vec::new(),
+            };
+            let mut rest = words[2..].iter();
+            while let Some(f) = rest.next() {
+                if f == "--full-page" {
+                    shot.full_page = true;
+                    continue;
+                }
+                let v = rest.next().ok_or_else(|| format!("{f} needs a value ({usage})"))?.clone();
+                let num = |v: &str| v.parse::<f64>().map_err(|_| format!("{f} takes a number, not {v:?}"));
+                match f.as_str() {
+                    "--threshold" => shot.threshold = num(&v)?.clamp(0.0, 1.0),
+                    "--max-diff-pixels" => shot.max_pixels = num(&v)? as u64,
+                    "--max-diff-ratio" => shot.max_ratio = Some(num(&v)?),
+                    "--mask" => shot.masks.push(v),
+                    f if f.starts_with("--") => shot.flags.extend([f.to_string(), v]),
+                    other => return Err(format!("{usage} (got {other:?})")),
+                }
+            }
+            (Subject::Screenshot(shot), Matcher::Holds, String::new())
         }
         "ax" => {
             let usage = "expect ax [<target>] matches, then the tree it expects indented under it";

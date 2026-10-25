@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use navigera::protocol::{parse_args, Command, Driver, SessionConfig};
 use serde_json::Value;
 
-use crate::expect::{compare, Expect, HttpRead, Matcher, Prop, RequestRead, Subject};
+use crate::expect::{compare, Expect, HttpRead, Matcher, Prop, RequestRead, Shot, Subject};
 use crate::suite::{interpolate, Action, Scenario, Step, Suite};
 
 /// The state each `auth` block saved this run (or an earlier one within
@@ -55,6 +55,8 @@ pub struct Options {
     /// `--pause-on-failure`: keep the browser at a failure for a look.
     pub pause: bool,
     pub auth: Arc<AuthCache>,
+    /// `--update-screenshots`: a screenshot that differs becomes the baseline.
+    pub update_shots: bool,
 }
 
 /// One step that ran, for the HTML report.
@@ -771,6 +773,105 @@ impl Runner {
         }
     }
 
+    /// `expect screenshot`: take it (masks painted, animations stopped),
+    /// crop it to its target, and compare it with the baseline beside the
+    /// `.pv` file (`<file>.screenshots/<name>-<os>.png`). No baseline yet:
+    /// it is written, and the step fails so a person looks at it first.
+    fn screenshot(&mut self, shot: &Shot, scope: &Scope) -> Result<(bool, String), String> {
+        let stem = scope.pv.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let dir = scope.pv.parent().unwrap_or(Path::new(".")).join(format!("{stem}.screenshots"));
+        let baseline = dir.join(format!("{}-{}.png", shot.name, std::env::consts::OS));
+        let flags = scope.words(&shot.flags)?;
+        // Still and masked while it is taken.
+        let masks = serde_json::to_string(&shot.masks).unwrap_or_default();
+        let freeze = format!(
+            "(() => {{ const s = document.createElement('style'); s.id = '__pv_freeze'; \
+             s.textContent = '*,*::before,*::after{{animation:none!important;transition:none!important;caret-color:transparent!important}}'; \
+             document.documentElement.append(s); for (const css of {masks}) for (const e of document.querySelectorAll(css)) {{ \
+             const r = e.getBoundingClientRect(); const m = document.createElement('div'); m.className = '__pv_mask'; \
+             m.style.cssText = `position:absolute;left:${{r.left + scrollX}}px;top:${{r.top + scrollY}}px;width:${{r.width}}px;height:${{r.height}}px;background:#ff00ff;z-index:2147483647;pointer-events:none`; \
+             document.documentElement.append(m); }} return [scrollX, scrollY, devicePixelRatio]; }})()"
+        );
+        let unfreeze = "(() => { document.getElementById('__pv_freeze')?.remove(); for (const m of document.querySelectorAll('.__pv_mask')) m.remove(); return 1; })()";
+        let at = self.command(&["eval".into(), freeze])?;
+        let n = |i: usize| at.get(i).and_then(Value::as_f64).unwrap_or(0.0);
+        let (sx, sy, dpr) = (n(0), n(1), n(2).max(1.0));
+        let tmp = self.opts.evidence.join(format!("{stem}-{}-taking.png", shot.name));
+        let _ = std::fs::create_dir_all(&self.opts.evidence);
+        let mut words = vec!["screenshot".to_string(), "--path".into(), tmp.display().to_string()];
+        if shot.full_page || !flags.is_empty() {
+            words.push("--full-page".into());
+        }
+        let took = self.command(&words);
+        let _ = self.command(&["eval".into(), unfreeze.into()]);
+        took?;
+        let bytes = std::fs::read(&tmp).map_err(|e| format!("screenshot {}: {e}", tmp.display()))?;
+        let _ = std::fs::remove_file(&tmp);
+        let mut img = crate::shot::decode(&bytes)?;
+        if !flags.is_empty() {
+            let mut w = vec!["get".to_string(), "box".into()];
+            w.extend(flags.iter().cloned());
+            let b = self.command(&w)?;
+            let f = |k: &str| b.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+            let px = |v: f64| (v * dpr).round().max(0.0) as u32;
+            img = crate::shot::crop(&img, px(f("x") + sx), px(f("y") + sy), px(f("width")), px(f("height")));
+        }
+        let write = |path: &Path, img: &crate::shot::Image| -> Result<(), String> {
+            if let Some(d) = path.parent() {
+                std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+            }
+            std::fs::write(path, crate::shot::encode(img)).map_err(|e| format!("{}: {e}", path.display()))
+        };
+        let Ok(base_bytes) = std::fs::read(&baseline) else {
+            write(&baseline, &img)?;
+            if self.opts.update_shots {
+                return Ok((true, "baseline written".into()));
+            }
+            return Err(format!(
+                "no baseline yet: wrote {} from this run; look at it, keep it with the tests, and run again",
+                baseline.display()
+            ));
+        };
+        let base = crate::shot::decode(&base_bytes).map_err(|e| format!("{}: {e}", baseline.display()))?;
+        let verdict = crate::shot::compare(&base, &img, shot.threshold);
+        let ok = match &verdict {
+            Ok(d) => {
+                d.pixels <= shot.max_pixels && shot.max_ratio.is_none_or(|r| d.pixels as f64 <= r * d.total as f64)
+            }
+            Err(_) => false,
+        };
+        if ok {
+            return Ok((true, "it matches".into()));
+        }
+        if self.opts.update_shots {
+            write(&baseline, &img)?;
+            return Ok((true, "baseline updated".into()));
+        }
+        let actual = self.opts.evidence.join(format!("{stem}-{}-actual.png", shot.name));
+        write(&actual, &img)?;
+        Ok((
+            false,
+            match verdict {
+                Ok(d) => {
+                    let diff = self.opts.evidence.join(format!("{stem}-{}-diff.png", shot.name));
+                    write(&diff, &d.image)?;
+                    format!(
+                        "{} of {} pixels differ ({:.2}%), {} allowed; this run {}, the differences {}",
+                        d.pixels,
+                        d.total,
+                        100.0 * d.pixels as f64 / d.total.max(1) as f64,
+                        shot.max_ratio
+                            .map(|r| format!("{:.2}%", r * 100.0))
+                            .unwrap_or_else(|| shot.max_pixels.to_string()),
+                        actual.display(),
+                        diff.display()
+                    )
+                }
+                Err(why) => format!("{why}; this run {}", actual.display()),
+            },
+        ))
+    }
+
     /// One look: whether the subject holds, and what was seen.
     fn check(&mut self, e: &Expect, value: &str, scope: &Scope, left: Duration) -> Result<(bool, String), String> {
         // Each read waits for its element at most this long, so an
@@ -977,6 +1078,7 @@ impl Runner {
                     Err(err) => (false, err),
                 }
             }
+            Subject::Screenshot(shot) => self.screenshot(shot, scope)?,
             Subject::Http(read) => match http_read(read, scope)? {
                 Some(actual) if e.matcher == Matcher::Holds => (actual != "null", actual),
                 Some(actual) => (compare(&actual, e.matcher, value), actual),
@@ -1088,6 +1190,13 @@ fn parse(words: &[String]) -> Result<Command, String> {
 
 fn describe(e: &Expect, value: &str, actual: &str, limit: Duration) -> String {
     let not = if e.negate { "not " } else { "" };
+    if let Subject::Screenshot(s) = &e.subject {
+        return format!(
+            "expected screenshot {} {not}to match its baseline within {} ms: {actual}",
+            s.name,
+            limit.as_millis()
+        );
+    }
     if let Subject::Ax { flags, .. } = &e.subject {
         let on = if flags.is_empty() { String::new() } else { format!(" {}", flags.join(" ")) };
         return format!("expected ax{on} {not}to match the tree under it within {} ms: {actual}", limit.as_millis());
@@ -1117,6 +1226,7 @@ fn describe(e: &Expect, value: &str, actual: &str, limit: Duration) -> String {
         Subject::Storage { area, key } => format!("storage {area} {key}"),
         // Said above.
         Subject::Ax { .. } => String::new(),
+        Subject::Screenshot(s) => format!("screenshot {}", s.name),
         Subject::Http(HttpRead::Json(p)) => format!("json {p}"),
         Subject::Http(HttpRead::Header(h)) => format!("header {h}"),
         Subject::Target { flags, prop } => {
@@ -1278,6 +1388,8 @@ struct Scope {
     soft: Vec<(Step, String)>,
     /// The last `http` answer's headers.
     http_headers: Vec<(String, String)>,
+    /// The `.pv` file: screenshot baselines are beside it.
+    pv: PathBuf,
 }
 
 impl Scope {
@@ -1303,6 +1415,7 @@ impl Scope {
             notes: Vec::new(),
             soft: Vec::new(),
             http_headers: Vec::new(),
+            pv: suite.file.clone(),
         };
         // A `set` value's own `${…}` (a default, `--var`, another `set`, a
         // secret, the environment) is filled in once, here; one that names
