@@ -926,6 +926,12 @@ fn anchor_inputs(action: &mut Action, dir: &Path) {
             }
             return;
         }
+        Action::Expect(Expect { subject: crate::expect::Subject::DownloadCompare { expected: f, .. }, .. }) => {
+            if !f.starts_with("${") && Path::new(f.as_str()).is_relative() {
+                *f = dir.join(f.as_str()).to_string_lossy().into_owned();
+            }
+            return;
+        }
         Action::Http { body_file: Some(f), .. } => {
             if !f.starts_with("${") && Path::new(f.as_str()).is_relative() {
                 *f = dir.join(f.as_str()).to_string_lossy().into_owned();

@@ -801,7 +801,7 @@ impl Runner {
             let (holds, actual) = self.check(e, &value, scope, left)?;
             if holds != e.negate {
                 // The file that came: `${download.path}`, `${download.name}`.
-                if let (Subject::Download(_), false) = (&e.subject, e.negate) {
+                if let (Subject::Download(_) | Subject::DownloadCompare { .. }, false) = (&e.subject, e.negate) {
                     let name = Path::new(&actual).file_name().map(|n| n.to_string_lossy().into_owned());
                     scope.saved.insert("download.name".into(), name.unwrap_or_default());
                     scope.saved.insert("download.path".into(), actual);
@@ -912,6 +912,52 @@ impl Runner {
                 Err(why) => format!("{why}; this run {}", actual.display()),
             },
         ))
+    }
+
+    /// The latest finished download whose name matches `glob`: its path;
+    /// or what downloads there are.
+    fn download_done(&mut self, glob: &str) -> Result<(bool, String), String> {
+        let v = self.command(&["downloads".into(), "--json".into()])?;
+        let list = v.as_array().cloned().unwrap_or_default();
+        let name = |d: &Value| d.get("file").and_then(Value::as_str).unwrap_or("").to_string();
+        let done = list.iter().rev().find(|d| {
+            crate::expect::glob(glob, &name(d)) && d.get("state").and_then(Value::as_str) == Some("completed")
+        });
+        Ok(match done {
+            Some(d) => (true, d.get("path").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| name(d))),
+            None => {
+                let seen: Vec<String> = list
+                    .iter()
+                    .map(|d| format!("{} ({})", name(d), d.get("state").and_then(Value::as_str).unwrap_or("?")))
+                    .collect();
+                (false, if seen.is_empty() { "no download".into() } else { seen.join(", ") })
+            }
+        })
+    }
+
+    /// compara on a downloaded file and the expected one: nothing when they
+    /// are the same, else its counts and the HTML report it wrote.
+    fn compara(&self, got: &str, expected: &str, flags: &[String]) -> Result<(), String> {
+        let exe = std::env::var("PRIMAVERA_COMPARA").unwrap_or_else(|_| "compara".into());
+        let stem = Path::new(got).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let _ = std::fs::create_dir_all(&self.opts.evidence);
+        let report = self.opts.evidence.join(format!("{stem}-compare.html"));
+        let out = std::process::Command::new(&exe)
+            .args(["compare", got, expected])
+            .args(flags)
+            .arg("-o")
+            .arg(&report)
+            .output()
+            .map_err(|e| {
+                format!("compare needs compara ({exe}: {e}; cargo install compara, npm i -g compara or pip install compara)")
+            })?;
+        let said = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+        let first = said.lines().find(|l| !l.trim().is_empty() && !l.starts_with("Report:")).unwrap_or("").trim();
+        match out.status.code() {
+            Some(0) => Ok(()),
+            Some(1) => Err(format!("{got} differs from {expected}: {first}; the report {}", report.display())),
+            _ => Err(format!("compara on {got} and {expected}: {first}")),
+        }
     }
 
     /// How many console messages the tab has so far.
@@ -1098,27 +1144,16 @@ impl Runner {
                     },
                 }
             }
-            Subject::Download(glob) => {
-                let glob = scope.word(glob)?;
-                let v = self.command(&["downloads".into(), "--json".into()])?;
-                let list = v.as_array().cloned().unwrap_or_default();
-                let name = |d: &Value| d.get("file").and_then(Value::as_str).unwrap_or("").to_string();
-                let done = list.iter().rev().find(|d| {
-                    crate::expect::glob(&glob, &name(d)) && d.get("state").and_then(Value::as_str) == Some("completed")
-                });
-                match done {
-                    Some(d) => {
-                        (true, d.get("path").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| name(d)))
-                    }
-                    None => {
-                        let seen: Vec<String> = list
-                            .iter()
-                            .map(|d| format!("{} ({})", name(d), d.get("state").and_then(Value::as_str).unwrap_or("?")))
-                            .collect();
-                        (false, if seen.is_empty() { "no download".into() } else { seen.join(", ") })
-                    }
+            Subject::DownloadCompare { glob, expected, flags } => match self.download_done(&scope.word(glob)?)? {
+                (true, path) => {
+                    let expected = scope.word(expected)?;
+                    let flags = scope.words(flags)?;
+                    self.compara(&path, &expected, &flags)?;
+                    (true, path)
                 }
-            }
+                seen => seen,
+            },
+            Subject::Download(glob) => self.download_done(&scope.word(glob)?)?,
             Subject::Console => {
                 let v = self.command(&["console".into(), "--json".into()])?;
                 let texts: Vec<String> = v
@@ -1295,6 +1330,7 @@ fn describe(e: &Expect, value: &str, actual: &str, limit: Duration) -> String {
         Subject::Text { text, within: None } => format!("text {text:?}"),
         Subject::Text { text, within: Some(w) } => format!("text {text:?} within {}", w.join(" ")),
         Subject::Download(g) => format!("a download {g:?}"),
+        Subject::DownloadCompare { glob, expected, .. } => format!("a download {glob:?} the same as {expected}"),
         Subject::Console => "a console message".to_string(),
         Subject::Var(v) => v.clone(),
         Subject::Errors => "no page errors".to_string(),

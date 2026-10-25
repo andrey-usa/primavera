@@ -59,6 +59,13 @@ pub enum Subject {
     },
     /// A finished download whose file name matches the glob.
     Download(String),
+    /// `download <glob> compare <expected> <compara flags…>`: and compara
+    /// finds it the same as the expected file (beside the `.pv`).
+    DownloadCompare {
+        glob: String,
+        expected: String,
+        flags: Vec<String>,
+    },
     /// A console message (any level) compared: `console contains "x"`.
     Console,
     /// `ax [<target>] matches` and the tree indented under it (see
@@ -467,7 +474,21 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
         }
         "download" => match words.len() {
             2 => (Subject::Download(words[1].clone()), Matcher::Holds, String::new()),
-            _ => return Err("expect download <file name glob> (like report-*.csv)".into()),
+            n if n >= 4 && words[2] == "compare" => (
+                Subject::DownloadCompare {
+                    glob: words[1].clone(),
+                    expected: words[3].clone(),
+                    flags: words[4..].to_vec(),
+                },
+                Matcher::Holds,
+                String::new(),
+            ),
+            _ => {
+                return Err(
+                    "expect download <file name glob> [compare <expected file> --key <columns> [compara flags…]]"
+                        .into(),
+                )
+            }
         },
         "console" => {
             let (m, v) = tail(&words[1..], "console")?;

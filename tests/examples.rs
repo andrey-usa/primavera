@@ -413,6 +413,35 @@ fn a_trace_records_each_step_and_reads_back() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+#[test]
+fn a_download_is_compared_with_the_expected_file() {
+    let exe = std::env::var("PRIMAVERA_COMPARA").unwrap_or_else(|_| "compara".into());
+    if std::process::Command::new(&exe).arg("--version").output().is_err() {
+        return; // compara isn't here
+    }
+    let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
+    let dir = std::env::temp_dir().join(format!("pv-compare-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("expected.csv"), "id,name\n1,Ada\n").unwrap();
+    std::fs::write(dir.join("other.csv"), "id,name\n1,Bob\n").unwrap();
+    let pv = dir.join("c.pv");
+    let scenario = |name: &str, file: &str| {
+        format!("scenario \"{name}\"\n  goto /m1\n  click --selector \"#dl\"\n  expect download \"report-*.csv\" compare {file} --key id\n")
+    };
+    std::fs::write(&pv, scenario("The same", "expected.csv") + &scenario("Not the same", "other.csv")).unwrap();
+    let ev = dir.join("ev");
+    let out = Command::new(env!("CARGO_BIN_EXE_primavera"))
+        .args(["run", pv.to_str().unwrap(), "--base-url", &site.1, "--evidence", ev.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{text}");
+    assert!(text.contains("1 passed, 1 failed"), "{text}");
+    assert!(text.contains("differs from") && text.contains("changed 1"), "{text}");
+    assert!(std::fs::read_dir(&ev).unwrap().any(|e| e.unwrap().path().to_string_lossy().ends_with("-compare.html")));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// A GET to the fixture site, its body.
 fn fetch(site: &Site, path: &str) -> String {
     use std::io::{Read, Write};
