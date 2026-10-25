@@ -53,6 +53,8 @@ struct Outline {
     steps: Vec<(usize, String, String)>,
     /// One table per `Examples`, with its own tags.
     tables: Vec<Examples>,
+    /// Its `Rule`'s `Background`, run first.
+    first: Vec<Step>,
 }
 
 /// Parse one `.feature` file. Its steps stay unresolved until [`resolve`].
@@ -63,6 +65,7 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
     enum In {
         Nothing,
         Background,
+        RuleBackground,
         Scenario,
         Outline,
         Examples,
@@ -71,6 +74,9 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
     let mut tags: Vec<String> = Vec::new();
     let mut feature_tags: Vec<String> = Vec::new();
     let mut outline: Option<Outline> = None;
+    // Inside a `Rule`: its own `Background`, for its scenarios only.
+    let mut in_rule = false;
+    let mut rule_background: Vec<Step> = Vec::new();
     // Whether the block has steps yet (free text before them is a description).
     let mut stepped = false;
     let mut names: BTreeMap<String, usize> = BTreeMap::new();
@@ -104,7 +110,12 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
                     name,
                     tags: o.tags.iter().chain(extra).cloned().collect(),
                     line: o.line,
-                    steps: o.steps.iter().map(|(l, kw, t)| pending(*l, kw, &fill(t))).collect(),
+                    steps: o
+                        .first
+                        .iter()
+                        .cloned()
+                        .chain(o.steps.iter().map(|(l, kw, t)| pending(*l, kw, &fill(t))))
+                        .collect(),
                     vars: head.iter().cloned().zip(row.iter().cloned()).collect(),
                 });
             }
@@ -135,22 +146,31 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
             return Err(err(line, "a .feature file starts with `Feature: <name>`".into()));
         }
         if let Some(_rule) = header(t, &["Rule"]) {
-            // Rules group scenarios; their own `Background` isn't kept apart.
+            // Rules group scenarios; a `Background` under one is for them.
             finish(outline.take(), &mut suite, &mut names)?;
             tags.clear();
+            in_rule = true;
+            rule_background.clear();
             at = In::Nothing;
             continue;
         }
         if header(t, &["Background"]).is_some() {
             finish(outline.take(), &mut suite, &mut names)?;
-            at = In::Background;
+            at = if in_rule { In::RuleBackground } else { In::Background };
             stepped = false;
             continue;
         }
         if let Some(name) = header(t, &["Scenario Outline", "Scenario Template"]) {
             finish(outline.take(), &mut suite, &mut names)?;
             let all = feature_tags.iter().cloned().chain(std::mem::take(&mut tags)).collect();
-            outline = Some(Outline { name: name.to_string(), line, tags: all, steps: Vec::new(), tables: Vec::new() });
+            outline = Some(Outline {
+                name: name.to_string(),
+                line,
+                tags: all,
+                steps: Vec::new(),
+                tables: Vec::new(),
+                first: rule_background.clone(),
+            });
             at = In::Outline;
             stepped = false;
             continue;
@@ -168,7 +188,7 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
                 name: name.to_string(),
                 tags: all,
                 line,
-                steps: Vec::new(),
+                steps: rule_background.clone(),
                 vars: BTreeMap::new(),
             });
             at = In::Scenario;
@@ -208,6 +228,7 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
             stepped = true;
             match at {
                 In::Background => suite.before_each.push(pending(line, kw, text)),
+                In::RuleBackground => rule_background.push(pending(line, kw, text)),
                 In::Scenario => {
                     suite.scenarios.last_mut().expect("a scenario is open").steps.push(pending(line, kw, text))
                 }
@@ -458,6 +479,19 @@ Feature: Coupons
       | France  | $9  |
       | Spain   | $12 |
 ";
+
+    #[test]
+    fn a_rules_background_is_for_its_own_scenarios() {
+        let text = "Feature: Accounts\n  Background:\n    Given I open \"/\"\n\n  Rule: signed in\n    Background:\n      Given I open \"/login\"\n\n    Scenario: sees orders\n      Then I see \"Orders\"\n\n    Scenario Outline: sees <page>\n      Then I see \"<page>\"\n      Examples:\n        | page |\n        | Cart |\n\n  Rule: guest\n    Scenario: sees the shop\n      Then I see \"Shop\"\n";
+        let s = parse(Path::new("r.feature"), text).unwrap();
+        assert_eq!(s.before_each.len(), 1, "the feature's Background");
+        let lines: Vec<Vec<usize>> = s.scenarios.iter().map(|c| c.steps.iter().map(|st| st.line).collect()).collect();
+        assert_eq!(
+            lines,
+            [vec![7, 10], vec![7, 13], vec![20]],
+            "the Rule's Background is line 7, for its scenarios only"
+        );
+    }
 
     #[test]
     fn features_scenarios_outlines_and_tags() {

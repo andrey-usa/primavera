@@ -131,7 +131,11 @@ Status: pre-release. Everything below works in this build.
   from the row (`scenario "Ship to ${country}"`); the row's columns are
   variables.
 - `expect` retries until it holds or its timeout (5 s, `--timeout-ms` on the
-  line or the run) runs out:
+  line or the run) runs out; `exit`, `stdout`, `stderr`, `status`, `body`,
+  `json` and `header` read the last `exec` or `http` answer once. `is`
+  compares numbers as numbers (`1` is `1.0`). A glob (`request`,
+  `download`) has `*` for any run of characters and matches the whole URL
+  or file name:
 
 | expect | |
 |---|---|
@@ -139,16 +143,16 @@ Status: pre-release. Everything below works in this build.
 | `text "<t>"`, `no text "<t>"` [`--within <target>`] | visible text, frames included, or inside an element |
 | `<target> visible`, `hidden`, `enabled`, `disabled`, `checked`, `unchecked`, `focused`, `editable`, `empty` | an element's state |
 | `<target> text`, `value`, `attr <name>`, `style <property>` + a comparison | an element's text, value, attribute or computed style |
-| `--selector <css> count` `is`, `>`, `>=`, `<`, `<=` `<n>` | how many match |
+| `--selector <css> count` `is`, `>`, `>=`, `<`, `<=` `<n>` | how many match (exactly one `--selector`) |
 | `${var}` + a comparison | a saved value |
 | `js "<expression>"` (or `eval`) [+ a comparison] | a script in the page: truthy, or its value compared |
-| `request <METHOD> <url glob> [status <n>]`, `no request …` | a request the page made in this scenario (`*` in the URL matches anything) |
-| `request … json <$.path>` + a comparison | a value in the last matching response's JSON (`$.items[0].sku`) |
+| `request <METHOD> <url glob> [status <n>]`, `no request <METHOD> <url glob>` | a request the page made in this scenario (`*` in the URL matches anything) |
+| `request … json <$.path>` + a comparison | a value in the last matching response's JSON: `$`, `.key`, `[0]`, `["key"]` (`$.items[0].sku`) |
 | `request … count` + a comparison | how many matching requests |
 | `cookie <name>` [+ a comparison], `no cookie <name>`, `cookie <name> absent` | a cookie of the scenario's browser context |
 | `storage local\|session <key>` [+ a comparison \| `absent`] | Local or Session Storage |
 | `download <file glob>`, `no download …` | a finished download (then `${download.path}`, `${download.name}`: the latest match). Each scenario's downloads go to a directory of its own beside its evidence (`.primavera/runs/<time>/<scenario>/downloads`, kept only when something came), so a name never carries over from another scenario; a second file of the same name in one scenario arrives as `name (2).ext` |
-| `download <file glob> compare <expected file> --key <columns>` [compara flags…] | the download is the same table as the expected file beside the `.pv` ([compara](https://github.com/andrey-usa/compara) on the PATH, or `PRIMAVERA_COMPARA`): CSV, NDJSON or Parquet, either side; compara's flags (`-i`, `--trim`, `--tolerance`) pass through. A difference fails the step with compara's counts and the reports it kept beside the scenario's downloads: `--report html,json,rows` (the HTML report, the JSON summary of counts and column statistics, CSVs of the changed, added and removed rows) or `none`; the run's `--compare-report` (`compare_report` in `primavera.toml`, default `html`) when the step doesn't say, and compara's own `-o`, `--json` or `--export-dir` win |
+| `download <file glob> compare <expected file>` [`--key <columns>`] [compara flags…] | the download is the same table as the expected file beside the `.pv` ([compara](https://github.com/andrey-usa/compara) on the PATH, or `PRIMAVERA_COMPARA`): CSV, NDJSON or Parquet, either side; compara's flags (`-i`, `--trim`, `--tolerance`) pass through. A difference fails the step with compara's counts and the reports it kept beside the scenario's downloads: `--report html,json,rows` (the HTML report, the JSON summary of counts and column statistics, CSVs of the changed, added and removed rows) or `none`; the run's `--compare-report` (`compare_report` in `primavera.toml`, default `html`) when the step doesn't say, and compara's own `-o`, `--json` or `--export-dir` win |
 | `console` + a comparison, `no console "<t>"` | a console message (any level) |
 | `no errors` | no page exceptions or console errors |
 | `exit` [`is`] `<n>`, `stdout`/`stderr` + a comparison | what the last `exec` gave |
@@ -192,9 +196,13 @@ Status: pre-release. Everything below works in this build.
 
 `.feature` files run as they are, beside `.pv` files (no generated code):
 `Feature`, `Background` (before each scenario), `Scenario`/`Example`,
-`Scenario Outline` with `Examples` tables (`<column>` filled in; one
-scenario per row, named by its values when the name has no `<…>`),
-`Rule`, tags, and `Given`/`When`/`Then`/`And`/`But`/`*` steps.
+`Scenario Outline` (or `Scenario Template`) with `Examples` (or
+`Scenarios`) tables, several allowed, each with its own tags (`<column>`
+filled in; one scenario per row, named `Name (col=value, …)` when the name
+has no `<…>`), `Rule` (a `Background` under it runs before that rule's
+scenarios only), tags (a feature's go on all its scenarios), and
+`Given`/`When`/`Then`/`And`/`But`/`*` steps, all alike. English keywords
+only.
 
 A step is one of the run's own `step` blocks, from any `.pv` file it loads:
 
@@ -204,14 +212,18 @@ step "I sign in with {password}"
   click --text "Sign in"
 ```
 
-`{name}` takes a quoted value or one word and is `${name}` in the steps
-under it. Else it is a phrase of the built-in book: `I open "/cart"` (`go
-to`, `visit`, `am on`), `I click "Apply"`, `I fill "Email" with "a@b.c"`,
-`I type "x" into "Search"`, `I select "Canada" from "Country"`, `I check
-"Terms"`, `I uncheck …`, `I press "Enter"`, `I wait for "Saved"`, `I see
-"Saved"`, `I don't see "Error"`, `the URL is|contains|starts with|ends
-with|matches "…"`, `the title is|contains … "…"`. A step nothing matches is
-a file error that says how to write it. Data tables and doc strings under a
+`{name}` takes a `"…"` or `'…'` value or one word and is `${name}` in the
+steps under it; a line two `step` blocks match is an error. Else it is a
+phrase of the built-in book: `I open "/cart"` (`go to`, `navigate to`,
+`visit`, `am on`), `I click "Apply"` (`click on`; by visible text), `I fill
+"Email" with "a@b.c"` (`fill in`, `enter`; by label), `I type "x" into
+"Search"`, `I select "Canada" from "Country"` (or `in`), `I check "Terms"`,
+`I uncheck …`, `I press "Enter"`, `I wait for "Saved"`, `I see "Saved"` (`I
+should see`), `I don't see "Error"` (`should not`, `shouldn't`, `do not`),
+`the URL is|contains|starts with|ends with|matches "…"` (`url`, `page URL`),
+`the title is|contains … "…"` (`page title`). An icon button or a field
+with no label needs a `step` block (`click --role …`, `--placeholder`). A
+step nothing matches is a file error that says how to write it. Data tables and doc strings under a
 step aren't supported yet.
 
 `--cucumber <file>` writes Cucumber JSON for the `.feature` files, step by
