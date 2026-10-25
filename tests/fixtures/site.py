@@ -97,6 +97,13 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/me":
             sid = next((c.split("=", 1)[1] for c in (self.headers.get("Cookie") or "").split("; ") if c.startswith("sid=")), None)
             return self.answer(200, json.dumps({"sid": sid})) if sid else self.answer(401, '{"error": "signed out"}')
+        if u.path == "/api/hop":
+            self.send_response(302)
+            self.send_header("Location", "/api/me")
+            self.send_header("Set-Cookie", "sid=hop; Path=/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if u.path == "/api/fail":
             return self.answer(500, "db down")
         if u.path == "/account":

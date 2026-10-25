@@ -515,7 +515,7 @@ impl Runner {
                 }
                 Ok(())
             }
-            Action::Http { method, url, headers, body, body_file, json, timeout_ms, steps } => {
+            Action::Http { method, url, headers, body, body_file, json, timeout_ms, follow, insecure, steps } => {
                 let mut url = scope.word(url)?;
                 if url.starts_with('/') {
                     let base = self.opts.base.as_deref().ok_or_else(|| {
@@ -552,17 +552,16 @@ impl Runner {
                     }
                 }
                 let limit = Duration::from_millis(timeout_ms.unwrap_or(self.opts.expect_ms.max(30_000)));
-                let r = crate::http::request(method, &url, &headers, body.as_deref(), limit)?;
+                let how = crate::http::How { follow: *follow, insecure: *insecure };
+                let r = crate::http::request(method, &url, &headers, body.as_deref(), limit, how)?;
                 // And what it sets comes back to the browser.
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
-                for (k, v) in &r.headers {
-                    if k.eq_ignore_ascii_case("set-cookie") {
-                        if let Some(words) = crate::http::cookie_words(v, &url, now) {
-                            self.command(&words)?;
-                        }
+                for v in &r.cookies {
+                    if let Some(words) = crate::http::cookie_words(v, &url, now) {
+                        self.command(&words)?;
                     }
                 }
                 scope.saved.insert("http.status".into(), r.status.to_string());
@@ -1143,7 +1142,7 @@ fn describe(e: &Expect, value: &str, actual: &str, limit: Duration) -> String {
 
 /// Run a program (no shell) in `dir`, reading its output as it comes, and
 /// stop it at `limit`: its exit code (-1 when a signal ended it), stdout and
-/// stderr (the first MB of each). Something it left running that holds the
+/// stderr (the first 16 MB of each). Something it left running that holds the
 /// output open (a server started in the background) doesn't hold the run.
 fn run_program(
     argv: &[String],
@@ -1153,7 +1152,7 @@ fn run_program(
 ) -> Result<(i32, String, String), String> {
     use std::io::Read;
     use std::process::Stdio;
-    const CAP: usize = 1 << 20;
+    const CAP: usize = 16 << 20;
     let (program, args) = argv.split_first().ok_or("exec needs a program")?;
     let mut cmd = std::process::Command::new(program);
     cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());

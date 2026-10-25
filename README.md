@@ -66,9 +66,10 @@ milestones are in agent-guidance `plans/prova.md`.
   database (`psql`, `sqlplus`), call a script. Its exit code and output
   become `${exec.exit}`, `${exec.stdout}` and `${exec.stderr}`, and
   `expect exit 0`, `expect stdout contains SHIPPED`, `expect stderr …`
-  check them. A nonzero exit fails the step, with the last line of its
-  stderr, unless a step indented under it checks `exit`. It is stopped
-  after 60 s.
+  check them (the first 16 MB of each). A nonzero exit fails the step,
+  with the last line of its stderr, unless a step indented under it checks
+  `exit`. It is stopped after 60 s (`--timeout-ms`), and that fails the
+  step whatever is under it.
 
   ```text
   exec ./scripts/order-status.sh ${order}
@@ -76,7 +77,8 @@ milestones are in agent-guidance `plans/prova.md`.
     expect stdout contains SHIPPED
   ```
 - `http <METHOD> <url> [--json <text> | --body <text> | --json-file <f> |
-  --body-file <f>] [--header "Name: value"]… [--timeout-ms <ms>]` makes a
+  --body-file <f>] [--header "Name: value"]… [--no-follow] [--insecure]
+  [--timeout-ms <ms>]` makes a
   request outside the page (an API to set up or check what the UI did; a
   relative URL takes the base URL). The scenario's cookies go with it and
   the cookies it sets come back to the browser, so an API sign-in signs
@@ -85,7 +87,10 @@ milestones are in agent-guidance `plans/prova.md`.
   ends-with /u/1`, `expect body contains …` check it, and `save id = json
   $.id` (or `header <name>`) keeps a value. A 4xx or 5xx fails the step,
   with the start of the body, unless a step indented under it checks
-  `status`. It goes through `curl` (on every supported OS), its options on
+  `status`; a timeout fails it whatever is under it. Redirects are followed
+  (up to 20, a cookie set on the way going to the next hop and to the
+  browser); `--no-follow` gives the 3xx itself. `--insecure` accepts a
+  certificate nothing vouches for (a local server's own). It goes through `curl` (on every supported OS), its options on
   curl's stdin, so a secret in a header or body stays out of the process
   list.
 
@@ -144,7 +149,7 @@ milestones are in agent-guidance `plans/prova.md`.
 | `no errors` | no page exceptions or console errors |
 | `exit` [`is`] `<n>`, `stdout`/`stderr` + a comparison | what the last `exec` gave |
 | `status` [`is`] `<n>`, `body` + a comparison, `json <$.path>` [+ a comparison], `header <name>` [+ a comparison] | the last `http` answer |
-| `ax [<target>] matches` + the tree indented under it | the page's (or the target's) accessibility tree, as `navigera ax` prints it, holds those lines: partially (`button` matches `button "Place order"`) and in order, a line indented under another inside what that one matched, refs ignored, `/regex/` for a name or a value |
+| `ax [<target>] matches` + the tree indented under it | the page's (or the target's) accessibility tree, as `navigera ax` prints it, holds those lines: partially (`button` matches `button "Place order"`) and in order, a line indented under another inside what that one matched, refs ignored, `/regex/` (spaces allowed) for a name or a value |
 | `not …` | any of them, negated |
 
   `--soft` on any `expect` notes a failure and goes on; the scenario fails

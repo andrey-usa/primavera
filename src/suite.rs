@@ -76,6 +76,11 @@ pub enum Action {
         body_file: Option<String>,
         json: bool,
         timeout_ms: Option<u64>,
+        /// `--no-follow`: the redirect itself, not where it leads.
+        follow: bool,
+        /// `--insecure`: accept a certificate nothing vouches for (a local
+        /// test server's own).
+        insecure: bool,
         steps: Vec<Step>,
     },
     /// A `.feature` step as written, until [`resolve`] finds what it does.
@@ -1038,7 +1043,7 @@ pub fn parse_words(words: &[String]) -> Result<Action, String> {
             Ok(Action::Exec { argv: rest.to_vec(), timeout_ms, dir: PathBuf::new(), steps: Vec::new() })
         }
         Some("http") => {
-            let usage = "expected `http <METHOD> <url> [--json <text> | --body <text> | --json-file <f> | --body-file <f>] [--header \"Name: value\"]… [--timeout-ms <ms>]`";
+            let usage = "expected `http <METHOD> <url> [--json <text> | --body <text> | --json-file <f> | --body-file <f>] [--header \"Name: value\"]… [--no-follow] [--insecure] [--timeout-ms <ms>]`";
             let method = words.get(1).ok_or(usage)?.to_uppercase();
             let url = words.get(2).ok_or(usage)?.clone();
             if method.starts_with('-') || url.starts_with("--") {
@@ -1046,8 +1051,20 @@ pub fn parse_words(words: &[String]) -> Result<Action, String> {
             }
             let (mut headers, mut body, mut body_file, mut json, mut timeout_ms) =
                 (Vec::new(), None, None, false, None);
+            let (mut follow, mut insecure) = (true, false);
             let mut rest = words[3..].iter();
             while let Some(flag) = rest.next() {
+                match flag.as_str() {
+                    "--no-follow" => {
+                        follow = false;
+                        continue;
+                    }
+                    "--insecure" => {
+                        insecure = true;
+                        continue;
+                    }
+                    _ => {}
+                }
                 let v = rest.next().ok_or_else(|| format!("{flag} needs a value"))?.clone();
                 match flag.as_str() {
                     "--header" => {
@@ -1074,7 +1091,18 @@ pub fn parse_words(words: &[String]) -> Result<Action, String> {
                     other => return Err(format!("{usage} (got {other:?})")),
                 }
             }
-            Ok(Action::Http { method, url, headers, body, body_file, json, timeout_ms, steps: Vec::new() })
+            Ok(Action::Http {
+                method,
+                url,
+                headers,
+                body,
+                body_file,
+                json,
+                timeout_ms,
+                follow,
+                insecure,
+                steps: Vec::new(),
+            })
         }
         Some("as") => match words {
             [_, name] => Ok(Action::As(name.clone())),

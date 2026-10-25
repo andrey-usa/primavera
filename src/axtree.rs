@@ -91,19 +91,45 @@ fn strip_refs(line: &str) -> String {
     out
 }
 
-/// Words split on spaces outside double quotes; a quoted word keeps its
-/// quotes (and `\"` inside it).
+/// Where a `/regex/` that starts at `from` (its opening `/`) ends: the
+/// index just past an unescaped `/` followed by a space or the end.
+fn regex_end(chars: &[char], from: usize) -> Option<usize> {
+    let mut i = from + 1;
+    while i < chars.len() {
+        match chars[i] {
+            '\\' => i += 2,
+            '/' if i > from + 1 && chars.get(i + 1).is_none_or(|c| c.is_whitespace()) => return Some(i + 1),
+            _ => i += 1,
+        }
+    }
+    None
+}
+
+/// Words split on spaces outside double quotes and `/regex/`s; a quoted
+/// word keeps its quotes (and `\"` inside it).
 fn words(line: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut quoted = false;
-    let mut chars = line.chars();
-    while let Some(c) = chars.next() {
+    let all: Vec<char> = line.chars().collect();
+    let mut at = 0;
+    while at < all.len() {
+        let c = all[at];
+        at += 1;
+        // A regex as a word or a value (`/a b/`, `value=/x y/`) keeps its spaces.
+        if c == '/' && !quoted && (cur.is_empty() || cur.ends_with('=')) {
+            if let Some(end) = regex_end(&all, at - 1) {
+                cur.extend(&all[at - 1..end]);
+                at = end;
+                continue;
+            }
+        }
         match c {
             '\\' if quoted => {
                 cur.push(c);
-                if let Some(n) = chars.next() {
+                if let Some(&n) = all.get(at) {
                     cur.push(n);
+                    at += 1;
                 }
             }
             '"' => {
@@ -286,6 +312,13 @@ mod tests {
         // A url copied from the tree is literal, though it looks like /re/.
         assert_eq!(matches(&tpl("- link \"Cart\" url=/cart/"), PAGE), Ok(()));
         assert_eq!(matches(&tpl("- heading /Check.*/ [level=1]"), PAGE), Ok(()));
+        // A regex with spaces is one word (T-0057).
+        assert_eq!(matches(&tpl("- button /Place or.er/"), PAGE), Ok(()));
+        assert_eq!(matches(&tpl("- button /Place \\w+/"), PAGE), Ok(()));
+        assert_eq!(matches(&tpl("- textbox value=/ada@example\\.com/ [ref=1]"), PAGE), Ok(()));
+        assert_eq!(words("- row: /a b/ | x"), ["-", "row:", "/a b/", "|", "x"]);
+        // A path that isn't a regex still splits.
+        assert_eq!(words("link url=/cart value=\"x\""), ["link", "url=/cart", "value=\"x\""]);
     }
 
     #[test]

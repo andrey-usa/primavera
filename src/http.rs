@@ -10,8 +10,18 @@ use std::time::Duration;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Response {
     pub status: u16,
+    /// The last answer's headers.
     pub headers: Vec<(String, String)>,
+    /// `Set-Cookie`s of every answer on the way, redirects included.
+    pub cookies: Vec<String>,
     pub body: String,
+}
+
+/// Whether to follow redirects, and to accept any certificate.
+#[derive(Debug, Clone, Copy)]
+pub struct How {
+    pub follow: bool,
+    pub insecure: bool,
 }
 
 /// A curl config string: `"…"` with `\` and `"` escaped, and the control
@@ -34,8 +44,16 @@ fn quoted(s: &str) -> String {
 }
 
 /// curl's config for one request.
-fn config(method: &str, url: &str, headers: &[String], body: Option<&str>, limit: Duration) -> String {
+fn config(method: &str, url: &str, headers: &[String], body: Option<&str>, limit: Duration, how: How) -> String {
     let mut c = format!("url = {}\nmax-time = {:.3}\n", quoted(url), limit.as_secs_f64());
+    if how.follow {
+        // A 301/302/303 after a POST is fetched with GET, as browsers do;
+        // a cookie set on the way goes to the next hop.
+        c.push_str("location\nmax-redirs = 20\ncookie = \"\"\n");
+    }
+    if how.insecure {
+        c.push_str("insecure\n");
+    }
     if method == "HEAD" {
         c.push_str("head\n");
     } else {
@@ -51,9 +69,11 @@ fn config(method: &str, url: &str, headers: &[String], body: Option<&str>, limit
 }
 
 /// curl `--include` output: the last header block (after any `100
-/// Continue`) and the body.
+/// Continue` and the redirects it followed), every `Set-Cookie` on the way,
+/// and the body.
 fn parse_response(raw: &[u8]) -> Result<Response, String> {
     let mut rest = raw;
+    let mut cookies = Vec::new();
     loop {
         let end = rest
             .windows(4)
@@ -70,16 +90,17 @@ fn parse_response(raw: &[u8]) -> Result<Response, String> {
             .nth(1)
             .and_then(|s| s.parse().ok())
             .ok_or_else(|| format!("not an HTTP status line: {status_line:?}"))?;
-        // An interim answer, then the real one.
-        if (100..200).contains(&status) && body.starts_with(b"HTTP/") {
-            rest = body;
-            continue;
-        }
-        let headers = lines
+        let headers: Vec<(String, String)> = lines
             .filter_map(|l| l.split_once(':'))
             .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
             .collect();
-        return Ok(Response { status, headers, body: String::from_utf8_lossy(body).into_owned() });
+        cookies.extend(headers.iter().filter(|(k, _)| k.eq_ignore_ascii_case("set-cookie")).map(|(_, v)| v.clone()));
+        // An interim answer or a followed redirect, then the real one.
+        if ((100..200).contains(&status) || (300..400).contains(&status)) && body.starts_with(b"HTTP/") {
+            rest = body;
+            continue;
+        }
+        return Ok(Response { status, headers, cookies, body: String::from_utf8_lossy(body).into_owned() });
     }
 }
 
@@ -90,6 +111,7 @@ pub fn request(
     headers: &[String],
     body: Option<&str>,
     limit: Duration,
+    how: How,
 ) -> Result<Response, String> {
     let mut child = Command::new("curl")
         .args(["-sS", "--include", "--config", "-"])
@@ -98,7 +120,7 @@ pub fn request(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("http needs curl on the PATH: {e}"))?;
-    let cfg = config(method, url, headers, body, limit);
+    let cfg = config(method, url, headers, body, limit, how);
     child.stdin.take().expect("piped").write_all(cfg.as_bytes()).map_err(|e| format!("curl: {e}"))?;
     let out = child.wait_with_output().map_err(|e| format!("curl: {e}"))?;
     if !out.status.success() {
@@ -200,18 +222,22 @@ mod tests {
 
     #[test]
     fn config_quotes_what_curl_unquotes() {
+        let plain = How { follow: false, insecure: false };
         let c = config(
             "POST",
             "http://h/a",
             &["X-Note: say \"hi\"\\".into()],
             Some("{\"a\":\n1}"),
             Duration::from_millis(1500),
+            plain,
         );
         assert_eq!(
             c,
             "url = \"http://h/a\"\nmax-time = 1.500\nrequest = \"POST\"\nheader = \"X-Note: say \\\"hi\\\"\\\\\"\ndata-binary = \"{\\\"a\\\":\\n1}\"\n"
         );
-        assert!(config("HEAD", "http://h/", &[], None, Duration::from_secs(1)).contains("\nhead\n"));
+        assert!(config("HEAD", "http://h/", &[], None, Duration::from_secs(1), plain).contains("\nhead\n"));
+        let both = config("GET", "https://h/", &[], None, Duration::from_secs(1), How { follow: true, insecure: true });
+        assert!(both.contains("\nlocation\nmax-redirs = 20\ncookie = \"\"\ninsecure\n"), "{both}");
     }
 
     #[test]
@@ -224,6 +250,13 @@ mod tests {
         assert_eq!(r.headers.iter().filter(|(k, _)| k == "Set-Cookie").count(), 2);
         assert_eq!(parse_response(b"HTTP/2 204\r\n\r\n").unwrap().status, 204);
         assert!(parse_response(b"garbage").is_err());
+        // Followed redirects: the last answer, with the cookies set on the way.
+        let raw = b"HTTP/1.1 302 Found\r\nLocation: /home\r\nSet-Cookie: sid=1\r\n\r\nHTTP/1.1 200 OK\r\nSet-Cookie: seen=1\r\n\r\nhome";
+        let r = parse_response(raw).unwrap();
+        assert_eq!((r.status, r.body.as_str()), (200, "home"));
+        assert_eq!(r.cookies, ["sid=1", "seen=1"]);
+        // A redirect not followed is the answer.
+        assert_eq!(parse_response(b"HTTP/1.1 302 Found\r\nLocation: /x\r\n\r\n").unwrap().status, 302);
     }
 
     #[test]

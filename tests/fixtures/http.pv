@@ -17,3 +17,10 @@ scenario "API calls and the browser share one set of cookies"
   http POST /api/users --body "{}"
     expect status 415
     expect body contains "send JSON"
+  # A redirect is followed, with the cookie it set; or not, when asked.
+  http GET /api/hop --header "Cookie: none=1"
+    expect status 200
+    expect json $.sid is hop
+  http GET /api/hop --no-follow
+    expect status 302
+    expect header location is /api/me
