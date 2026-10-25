@@ -96,3 +96,47 @@ jobs:
           flaky=$(grep -cE "^FLAKY" suite40.log)
           echo "::notice title=primavera suite40 $RUNNER_OS::40 scenarios x3, 4 workers, shuffled: ${tally:-no tally} (flaky: $flaky)"
           exit $code
+
+  action:
+    # The GitHub Action as a workflow uses it: no release yet, so it builds
+    # primavera from this commit (navigera beside it), then runs a file
+    # against the 40-scenario suite's site.
+    name: "the action (${{ matrix.os }})"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: primavera
+      - uses: actions/checkout@v7
+        with:
+          repository: andrey-usa/navigera
+          ref: ${{ env.NAVIGERA_REF }}
+          path: navigera
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: The site, and a file to run
+        shell: bash
+        run: |
+          python3 primavera/bench/suite40/site/server.py --port 18001 > site.out 2>&1 &
+          for _ in $(seq 150); do curl -sf -o /dev/null http://127.0.0.1:18001/ && break; sleep 0.2; done
+          mkdir -p t
+          printf 'scenario "The shop opens"\n  goto /\n  expect url ends-with /shop\n  expect title contains Acme\n  expect lcp < 10s\n  expect no errors\n' > t/shop.pv
+      - id: pv
+        uses: ./primavera
+        with:
+          paths: t
+          base-url: http://127.0.0.1:18001
+          args: --junit t/report.xml
+      - name: What it left
+        shell: bash
+        env:
+          EVIDENCE: ${{ steps.pv.outputs.evidence }}
+        run: |
+          grep -q 'tests="1"' t/report.xml && grep -q 'failures="0"' t/report.xml
+          echo "evidence: $EVIDENCE"

@@ -423,6 +423,23 @@ exits or doesn't answer in time ends the run with exit 3 and the end of its
 log. Other keys: `timeout_ms`, `wait_ms`, `isolation`, `fail_on_flaky`,
 `headed`; an unknown key is an error.
 
+## GitHub Actions
+
+```yaml
+- uses: andrey-usa/primavera@next
+  with:
+    paths: tests
+    base-url: http://127.0.0.1:3000
+    args: --workers auto --retries 1 --junit report.xml
+```
+
+It runs on the runner's Chrome (Linux, macOS, Windows). `version` picks a
+release (`latest` by default, or a tag); with no release binary for the
+runner it builds primavera from the action's own commit (`source` asks for
+that), with navigera at `navigera-ref`. Failures are annotations on the
+lines that failed; the `evidence` output is the directory holding their
+screenshots, for `actions/upload-artifact`.
+
 ## Building
 
 primavera links navigera as a library, checked out beside it:
