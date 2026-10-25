@@ -1,0 +1,98 @@
+name: ci
+
+# primavera's tests (parser, reports, the examples against navigera's bench
+# site and primavera's own fixture site) and the 40-scenario suite, on
+# Linux, macOS and Windows with the runner's Chrome, built against the
+# navigera branch checked out beside it (`../navigera`).
+
+on:
+  push:
+    branches: [next]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      navigera:
+        description: "navigera branch or commit to build against"
+        default: "interactions"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NAVIGERA_REF: ${{ inputs.navigera || 'interactions' }}
+
+jobs:
+  test:
+    name: "primavera ${{ matrix.os }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+        working-directory: primavera
+    env:
+      PRIMAVERA_REQUIRE_BROWSER: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: primavera
+      - uses: actions/checkout@v7
+        with:
+          repository: andrey-usa/navigera
+          ref: ${{ env.NAVIGERA_REF }}
+          path: navigera
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          toolchain: stable
+          cache: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: compara (for `expect download … compare`)
+        continue-on-error: true
+        run: python -m pip install --quiet compara && compara --version
+      - name: Tests
+        run: |
+          set +e -o pipefail
+          cargo test --locked --no-fail-fast 2>&1 | tee test.log
+          code=${PIPESTATUS[0]}
+          python3 - test.log "primavera $RUNNER_OS" <<'PY'
+          import re, sys
+          text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+          passed = sum(int(m) for m in re.findall(r"test result: \w+\. (\d+) passed", text))
+          failed = re.findall(r"^test (\S+) \.\.\. FAILED", text, re.M)
+          panics = re.findall(r"panicked at .*?\n(.*?)\n", text, re.S)
+          msg = f"{passed} passed, {len(failed)} failed {failed}"
+          if panics:
+              msg += "\n" + "\n".join(p[:900] for p in panics[:4])
+          print(f"::notice title={sys.argv[2]}::" + msg[:3800].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"))
+          PY
+          exit $code
+      - name: The 40-scenario suite
+        if: always()
+        run: |
+          set +e -uo pipefail
+          S=bench/suite40
+          python3 $S/site/server.py --port 18001 > site40.out 2>&1 &
+          python3 $S/gauntlet/server.py --port 18201 --xo-port 18202 --seed 7 --jitter 0 --telemetry 1 > gauntlet.out 2>&1 &
+          for _ in $(seq 150); do
+            curl -sf -o /dev/null http://127.0.0.1:18001/ && curl -sf -o /dev/null http://127.0.0.1:18202/xo-form && break
+            sleep 0.2
+          done
+          [ -x target/debug/primavera ] || cargo build --locked
+          export GAUNTLET_URL=http://127.0.0.1:18201
+          ./target/debug/primavera run $S/pv --base-url http://127.0.0.1:18001 --workers 4 \
+            --repeat 3 --shuffle --junit suite40.xml 2>&1 | tee suite40.log
+          code=${PIPESTATUS[0]}
+          tally=$(grep -E "^[0-9]+ passed" suite40.log | tail -1)
+          flaky=$(grep -cE "^FLAKY" suite40.log)
+          echo "::notice title=primavera suite40 $RUNNER_OS::40 scenarios x3, 4 workers, shuffled: ${tally:-no tally} (flaky: $flaky)"
+          exit $code
