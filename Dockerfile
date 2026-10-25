@@ -19,6 +19,7 @@ COPY navigera/skills navigera/skills
 COPY primavera/Cargo.toml primavera/Cargo.lock primavera/
 COPY primavera/src primavera/src
 COPY primavera/skills primavera/skills
+COPY primavera/vendor primavera/vendor
 RUN cd primavera && cargo build --release --locked && strip target/release/primavera
 
 FROM debian:trixie-slim

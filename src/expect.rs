@@ -18,6 +18,7 @@
 //! expect download report-*.csv
 //! expect no errors
 //! expect lcp < 2.5s                      (also fcp, ttfb, load in ms or s; cls)
+//! expect accessible [--selector main] [--tags wcag2aa] [--ignore color-contrast]
 //! expect not --selector .toast visible   (any expectation can be negated)
 //! expect text "Saved" --soft             (noted, the scenario goes on, fails at the end)
 //! ```
@@ -86,7 +87,17 @@ pub enum Subject {
     /// A measure of the current page's load (see [`METRICS`]): its value in
     /// milliseconds (`cls`: the layout shift score).
     Metric(String),
+    /// `accessible`: axe-core finds no violation of the tagged rules in
+    /// the page (or under a selector), the ignored rules aside.
+    Accessible {
+        selector: Option<String>,
+        tags: Vec<String>,
+        ignore: Vec<String>,
+    },
 }
+
+/// The WCAG levels `expect accessible` checks unless `--tags` says.
+pub const A11Y_TAGS: &[&str] = &["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
 
 /// `expect <metric> <comparison> <value>`: the page's Core Web Vitals and
 /// load times, as the browser measured them for the current document.
@@ -546,6 +557,27 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
             let (m, v) = tail(&words[1..], "url")?;
             (Subject::Url, m, v)
         }
+        "accessible" => {
+            let usage = "expect accessible [--selector <css>] [--tags wcag2a,wcag2aa,…] [--ignore <rule>,…]";
+            let (mut selector, mut tags, mut ignore) = (None, Vec::new(), Vec::new());
+            let mut rest = words[1..].iter();
+            while let Some(w) = rest.next() {
+                let list = |v: Option<&String>| -> Result<Vec<String>, String> {
+                    let v = v.ok_or(usage)?;
+                    Ok(v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+                };
+                match w.as_str() {
+                    "--selector" => selector = Some(rest.next().ok_or(usage)?.clone()),
+                    "--tags" => tags.extend(list(rest.next())?),
+                    "--ignore" => ignore.extend(list(rest.next())?),
+                    _ => return Err(format!("{usage} (got {w:?})")),
+                }
+            }
+            if tags.is_empty() {
+                tags = A11Y_TAGS.iter().map(|t| t.to_string()).collect();
+            }
+            (Subject::Accessible { selector, tags, ignore }, Matcher::Holds, String::new())
+        }
         metric if METRICS.contains(&metric) => {
             let (m, v) = tail(&words[1..], metric)?;
             if !matches!(m, Matcher::Lt | Matcher::Le | Matcher::Gt | Matcher::Ge) {
@@ -738,6 +770,16 @@ mod tests {
 
     #[test]
     fn subjects_and_matchers_parse() {
+        let e = p("accessible --selector main --ignore color-contrast,region").unwrap();
+        assert_eq!(
+            e.subject,
+            Subject::Accessible {
+                selector: Some("main".into()),
+                tags: A11Y_TAGS.iter().map(|t| t.to_string()).collect(),
+                ignore: vec!["color-contrast".into(), "region".into()],
+            }
+        );
+        assert!(p("accessible --strict").unwrap_err().contains("--tags"));
         let e = p("lcp < 2.5s").unwrap();
         assert_eq!((e.subject, e.matcher, e.value.as_str()), (Subject::Metric("lcp".into()), Matcher::Lt, "2500"));
         assert_eq!(p("ttfb <= 800ms").unwrap().value, "800");

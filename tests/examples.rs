@@ -640,6 +640,27 @@ fn an_unsure_failure_asks_the_decision_model_when_there_is_one() {
 }
 
 #[test]
+fn accessibility_is_checked_by_axe() {
+    let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
+    let dir = std::env::temp_dir().join(format!("pv-a11y-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("a11y.pv");
+    std::fs::write(
+        &file,
+        "scenario \"Fails\"\n  goto /a11y\n  expect accessible --timeout-ms 300\n\n\
+         scenario \"Ignored or scoped\"\n  goto /a11y\n  expect accessible --ignore image-alt,button-name,html-has-lang\n  \
+         expect accessible --selector #ok\n  goto /done\n  expect accessible --ignore html-has-lang\n",
+    )
+    .unwrap();
+    let (code, out) = primavera(&["run", file.to_str().unwrap(), "--base-url", &site.1]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("1 passed") && out.contains("1 failed"), "{out}");
+    assert!(out.contains("to pass axe (wcag2a, wcag2aa, wcag21a, wcag21aa)"), "{out}");
+    assert!(out.contains("button-name (critical, 1: button)") && out.contains("image-alt (critical, 1: img)"), "{out}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn load_metrics_are_budgets() {
     let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
     let dir = std::env::temp_dir().join(format!("pv-metrics-{}", std::process::id()));

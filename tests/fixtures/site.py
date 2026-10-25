@@ -116,6 +116,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.page(FORM)
         if u.path == "/done":
             return self.page("<h1>Thanks</h1>")
+        if u.path == "/a11y":
+            # An image without alt and a button without a name, outside #ok.
+            return self.page('<main><h1>Gallery</h1><section id=ok><p>Fine here.</p></section>'
+                             '<img src="/report.csv" width=10 height=10><button><svg width=8 height=8></svg></button></main>')
         if u.path == "/m1":
             return self.page(M1)
         if u.path == "/api/x":

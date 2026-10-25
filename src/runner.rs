@@ -1217,6 +1217,34 @@ impl Runner {
                 let actual = scope.word(raw)?;
                 (compare(&actual, e.matcher, value), actual)
             }
+            Subject::Accessible { selector, tags, ignore } => {
+                // axe once per document: a page that moved on has lost it.
+                if self.command(&["eval".into(), "typeof axe === 'object' && typeof axe.run === 'function'".into()])?
+                    != Value::Bool(true)
+                {
+                    self.command(&["eval".into(), format!("(function () {{\n{AXE}\n}}).call(window), 1")])?;
+                }
+                let context = match selector {
+                    Some(s) => serde_json::json!({"include": [scope.word(s)?]}).to_string(),
+                    None => "document".to_string(),
+                };
+                let js = format!(
+                    "axe.run({context}, {{ runOnly: {{ type: 'tag', values: {} }}, resultTypes: ['violations'] }}).then((r) => \
+                     r.violations.filter((v) => !{}.includes(v.id)).map((v) => \
+                     `${{v.id}} (${{v.impact}}, ${{v.nodes.length}}: ${{v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(', ')}}${{v.nodes.length > 3 ? ', …' : ''}}): ${{v.help}}`))",
+                    serde_json::json!(tags),
+                    serde_json::json!(ignore),
+                );
+                match self.command(&["eval".into(), js]) {
+                    Ok(Value::Array(found)) if found.is_empty() => (true, "no violations".into()),
+                    Ok(Value::Array(found)) => {
+                        let lines: Vec<String> = found.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+                        (false, format!("{} violation(s): {}", lines.len(), lines.join("; ")))
+                    }
+                    Ok(other) => (false, format!("axe said {other}")),
+                    Err(err) => (false, err),
+                }
+            }
             Subject::Metric(name) => {
                 let v = self.command(&["eval".into(), format!("({METRIC_JS})({})", serde_json::json!(name))])?;
                 match v.as_f64() {
@@ -1464,6 +1492,9 @@ impl Drop for Runner {
     }
 }
 
+/// axe-core (vendor/axe-core), put in the page by `expect accessible`.
+const AXE: &str = include_str!("../vendor/axe-core/axe.min.js");
+
 /// `expect lcp|fcp|ttfb|load|cls`: what the browser measured for the
 /// current document (ms from its navigation start; `cls`: the largest
 /// session window of layout shifts not caused by input), or null.
@@ -1514,6 +1545,14 @@ fn describe(e: &Expect, value: &str, actual: &str, limit: Duration) -> String {
             limit.as_millis()
         );
     }
+    if let Subject::Accessible { selector, tags, .. } = &e.subject {
+        let on = selector.as_ref().map(|s| format!(" under {s:?}")).unwrap_or_default();
+        return format!(
+            "expected the page{on} {not}to pass axe ({}) within {} ms; saw {actual}",
+            tags.join(", "),
+            limit.as_millis()
+        );
+    }
     if let Subject::Metric(m) = &e.subject {
         let unit = if m == "cls" { "" } else { " ms" };
         let seen = if actual.parse::<f64>().is_ok() { format!("{actual}{unit}") } else { actual.to_string() };
@@ -1555,6 +1594,7 @@ fn describe(e: &Expect, value: &str, actual: &str, limit: Duration) -> String {
         Subject::Ax { .. } => String::new(),
         Subject::Screenshot(s) => format!("screenshot {}", s.name),
         Subject::Metric(m) => m.clone(),
+        Subject::Accessible { .. } => "accessible".to_string(),
         Subject::Http(HttpRead::Json(p)) => format!("json {p}"),
         Subject::Http(HttpRead::Header(h)) => format!("header {h}"),
         Subject::Target { flags, prop } => {

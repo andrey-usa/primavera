@@ -155,6 +155,7 @@ Status: pre-release. Everything below works in this build.
 | `download <file glob> compare <expected file>` [`--key <columns>`] [compara flags…] | the download is the same table as the expected file beside the `.pv` ([compara](https://github.com/andrey-usa/compara) on the PATH, or `PRIMAVERA_COMPARA`): CSV, NDJSON or Parquet, either side; compara's flags (`-i`, `--trim`, `--tolerance`) pass through. A difference fails the step with compara's counts and the reports it kept beside the scenario's downloads: `--report html,json,rows` (the HTML report, the JSON summary of counts and column statistics, CSVs of the changed, added and removed rows) or `none`; the run's `--compare-report` (`compare_report` in `primavera.toml`, default `html`) when the step doesn't say, and compara's own `-o`, `--json` or `--export-dir` win |
 | `console` + a comparison, `no console "<t>"` | a console message (any level) |
 | `no errors` | no page exceptions or console errors |
+| `accessible` [`--selector <css>`] [`--tags wcag2a,wcag2aa,…`] [`--ignore <rule>,…`] | [axe-core](https://github.com/dequelabs/axe-core) (built in) finds no violation in the page, or under the selector: WCAG 2.0 and 2.1 A and AA by default (`--tags best-practice` and the rest of axe's tags too); a failure names each rule, its impact, the first elements and what to fix |
 | `lcp`, `fcp`, `ttfb`, `load` `<`, `<=`, `>`, `>=` `<time>` (`2.5s`, `800ms`); `cls` + a comparison and a score (`0.1`) | a performance budget for the current page, as the browser measured it: largest and first contentful paint, time to first byte, the load event (ms from the navigation's start); the layout shift score (its largest session window, shifts after input left out). Not measured yet (the load event still to come) is retried |
 | `exit` [`is`] `<n>`, `stdout`/`stderr` + a comparison | what the last `exec` gave |
 | `status` [`is`] `<n>`, `body` + a comparison, `json <$.path>` [+ a comparison], `header <name>` [+ a comparison] | the last `http` answer |
@@ -485,4 +486,5 @@ $ ./target/release/primavera run examples --base-url http://127.0.0.1:<port>
 
 ## License
 
-MIT
+MIT. `vendor/axe-core` is axe-core, unmodified, under the Mozilla Public
+License 2.0 (its `LICENSE` beside it).
