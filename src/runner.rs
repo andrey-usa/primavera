@@ -430,7 +430,7 @@ impl Runner {
         if enter(None).is_err() {
             // No one can press Enter: an agent looking from elsewhere gets
             // a while (PRIMAVERA_PAUSE_S, default 600 s); CI none.
-            let ci = std::env::var("CI").is_ok_and(|v| !v.is_empty() && v != "false");
+            let ci = under_ci();
             let secs: u64 = std::env::var("PRIMAVERA_PAUSE_S").ok().and_then(|v| v.parse().ok()).unwrap_or(if ci {
                 0
             } else {
@@ -1759,4 +1759,9 @@ fn enter(wait: Option<Duration>) -> Result<bool, ()> {
         Some(Some(_)) => Ok(true),
         _ => Err(()),
     }
+}
+
+/// Running under CI: `CI` set to anything but empty, `false` or `0`.
+pub fn under_ci() -> bool {
+    std::env::var("CI").is_ok_and(|v| !matches!(v.trim(), "" | "false" | "0"))
 }

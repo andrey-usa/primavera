@@ -25,21 +25,23 @@ PASS  tests/shop.pv:7  Adding a product counts it in the cart  (557 ms)
 1 passed, 0 failed in 0.9 s
 ```
 
-Status: **M1 in progress** (working name). The plan, the language and the
-milestones are in agent-guidance `plans/prova.md`.
+Status: pre-release. Everything below works in this build.
 
 ## The format
 
 - Top-level lines: `base <url>`, `set NAME = value`, `use other.pv`,
-  `flow name(a, b)`, `auth name [ttl 30m]`, `before all|each`, `after
-  each|all`, `scenario "name" @tag…`. Steps are indented under them.
-- A step is a navigera command line, written exactly as you would type it
-  after `navigera -s work …`: `goto`, `click`, `fill`, `select`, `press`,
+  `flow name(a, b)`, `step "<phrase>"` (a Gherkin step's steps, see
+  below), `auth name [ttl 30m]`, `before all|each`, `after each|all`,
+  `scenario "name" @tag…`. Steps are indented under them.
+- A step is a navigera command without the `navigera -s <session>`
+  prefix (`goto /cart`, `click --text Add`): `goto`, `click`, `fill`, `select`, `press`,
   `check`, `hover`, `scroll`, `upload`, `wait`, `eval`, `set`, `route`,
   `state load`, and the rest. Targets use navigera's locators (`--role`
   with `--name`, `--label`, `--text`, `--placeholder`, `--testid`,
-  `--selector`, `--nth`). Refs from `ax` are refused: they change between
-  runs.
+  `--selector`, `--nth`). Refs from `ax` (`click 12`) are an error: they
+  change between runs. `check --label Terms` ticks a box; `check
+  "<question>"` with no locator asks navigera a yes/no question about
+  the page (a model call).
 - A relative path a step reads (`upload`, `state load`, `eval --file`,
   `init-script --file`, `route --body-file`) is found next to the `.pv`
   file, as `use` and `for each` files are, so a suite runs the same from
@@ -47,12 +49,12 @@ milestones are in agent-guidance `plans/prova.md`.
   the current directory.
 - Words split like a shell's, with no expansion. `${NAME}` and
   `${NAME:-default}` come from `save`, a flow's arguments, the data row,
-  `before all`, `--var`, `set`, then the environment; `$$` (or `\$` in
-  double quotes) is a literal `$`. Also `${run.id}` (one per run: unique
+  `before all`, `--var`, `set`, then the environment; `$$` (or `\$`) is a
+  literal `$`, and quotes don't stop `${…}` (`'${x}'` is filled in too). Also `${run.id}` (one per run: unique
   emails), `${scenario.name}`, and `${download.path}`/`${download.name}`
   after `expect download`.
 - `${secret:NAME}`: from the environment, else `--secrets <file>`
-  (`NAME=value` lines). Its value is masked as `***` in everything the run
+  (`NAME=value` lines; the environment wins). Its value is masked as `***` in everything the run
   prints and saves (messages, the page's URL and title, saved values,
   JUnit and JSON lines).
 - A default with spaces is one word: quote it whole,
@@ -108,7 +110,7 @@ milestones are in agent-guidance `plans/prova.md`.
 - `if <expect clause>` with steps indented under it runs them when the
   clause holds now (or within its `--timeout-ms`): `if --selector
   "#banner" visible`, then `click --text Accept` indented below.
-- `auth shopper [ttl 30m]` holds steps that sign in; `as shopper` in a
+- `auth shopper [ttl 30m]` (`s`, `m`, `h`, `d`, or plain seconds) holds steps that sign in; `as shopper` in a
   scenario starts it signed in. The block runs once per run, in a browser
   context of its own, the first time a scenario needs it (the other
   workers wait for it), and its cookies and storage are saved under
@@ -132,7 +134,7 @@ milestones are in agent-guidance `plans/prova.md`.
 
 | expect | |
 |---|---|
-| `url`/`title` `is`, `contains`, `starts-with`, `ends-with`, `matches` `<value>` | the active tab |
+| `url`/`title` `is` (or `==`), `contains`, `starts-with`, `ends-with`, `matches` `<value>` | the active tab |
 | `text "<t>"`, `no text "<t>"` [`--within <target>`] | visible text, frames included, or inside an element |
 | `<target> visible`, `hidden`, `enabled`, `disabled`, `checked`, `unchecked`, `focused`, `editable`, `empty` | an element's state |
 | `<target> text`, `value`, `attr <name>`, `style <property>` + a comparison | an element's text, value, attribute or computed style |
@@ -220,21 +222,26 @@ scenario.
 
 ```text
 primavera run [<file.pv|file.feature|dir>...] [--base-url <url>] [--var k=v] [--grep <text>] [--tag <tag>]
-              [--workers <n|auto>] [--isolation context|browser] [--retries <n>] [--fail-on-flaky] [--shard <i/n>]
+              [--workers <n|auto>|-j <n>] [--isolation context|browser] [--retries <n>] [--fail-on-flaky] [--shard <i/n>]
               [--repeat <n>] [--shuffle [<seed>]]
               [--reporter console|jsonl|github] [--junit <file>] [--cucumber <file>] [--allure <dir>] [--html <file>] [--json]
               [--timeout-ms <ms>] [--wait-ms <ms>] [--headed] [--chromium <path>]
-              [--secrets <file>] [--pause-on-failure] [--trace on-failure|all] [--update-screenshots]
+              [--secrets <file>] [--evidence <dir>] [--pause-on-failure] [--trace on-failure|all] [--update-screenshots]
               [--compare-report html,json,rows|none] [--config <file>] [--env <name>]
-primavera lint [<file.pv|dir>...]
-primavera list [<file.pv|dir>...]
+primavera lint [<file.pv|file.feature|dir>...]
+primavera list [<file.pv|file.feature|dir>...]
 primavera trace <dir> [<line>]
 primavera fix [<file>:<line>] [--use <n>] [--all [--min <p>]]
 primavera navigera <command…>
 primavera from-session <name> [--scenario <name>] [--out <file.pv>]
 primavera record <url> [--out <file.pv>] [--scenario <name>] [--headless] [--for <seconds>]
 primavera mcp [--headed] [--chromium <path>]
+primavera skill          # the agent skill (what an agent reads to write tests)
+primavera --version
 ```
+
+`--base-url` falls back to `base` in the file, then `PRIMAVERA_BASE_URL`.
+`--workers auto` is half the CPUs, at most 8.
 
 - A click that opens a tab or a popup (`target=_blank`, `window.open`)
   moves the scenario to it, as navigera does: the next steps read and act
@@ -246,7 +253,8 @@ primavera mcp [--headed] [--chromium <path>]
   instead of a new browser's few hundred. `--workers n` runs n at once,
   each in a browser context of one shared browser (about 40% less memory
   at 4 workers than a browser each; `--isolation browser` gives each its
-  own); the longest (from `.primavera/timings.json`) start first.
+  own); the longest start first (by `.primavera/timings.json`, which each
+  run updates; the first run goes in file order).
 - `--html report.html` writes the run as one page that needs nothing
   else to open: failed scenarios first and open, each with its steps and
   their times, the failure (message, where the page was, what came
@@ -359,14 +367,17 @@ workers = 4                  # or "auto"
 retries = 1
 reporters = ["github"]       # added to --reporter
 junit = "reports/junit.xml"  # also html, cucumber, allure, secrets, evidence, chromium
+trace = "on-failure"         # or "all", "off"
+compare_report = ["html", "json"]  # what `expect download … compare` keeps
 [vars]                       # as --var; --var on the command line wins
 region = "us"
 
 [server]                     # the app under test
-command = "npm run dev"      # sh -c (cmd /C on Windows), in `cwd`
+command = "npm run dev"      # sh -c (cmd /C on Windows)
+cwd = "app"                  # where it runs (default: the config's directory)
 url = "http://127.0.0.1:3000/health"
 timeout_s = 60
-# reuse = true               # one already answering at url is used (default, except under CI)
+# reuse = true               # one already answering at url is used (default, except under CI: CI set and not empty, false or 0)
 # env = { PORT = "3000" }
 
 [env.staging]                # --env staging: on top of the rest

@@ -50,8 +50,8 @@ scenario "Adding a product counts it in the cart" @smoke
 - Words split like a shell's, no expansion. `${NAME}`, `${NAME:-default}`
   (from save, a flow's args, the row, `before all`, `--var`, `set`, the
   environment), `${run.id}`, `${scenario.name}`, `${secret:NAME}` (env or
-  `--secrets file`; masked in output). A literal `$`: `\$` in double
-  quotes, or single quotes.
+  `--secrets file`; masked in output). A literal `$`: `$$` (or `\$`).
+  Quotes don't stop `${…}`: `'${x}'` is filled in too.
 
 ## expect (retried until it holds, 5 s by default)
 
@@ -94,7 +94,22 @@ primavera run tests/x.pv --pause-on-failure  # keeps the failing tab; prints how
 ```
 
 Exit codes: 0 passed, 1 failed, 2 a file or argument is wrong, 3 the browser
-didn't start.
+or the app server didn't start.
+
+## More steps and checks (README has the details)
+
+- `exec <program> <args…>` (no shell; `expect exit|stdout|stderr`),
+  `http <METHOD> <url> [--json …]` (`expect status|json|header|body`,
+  `save id = json $.id`; cookies shared with the browser).
+- `expect ax [<target>] matches` + `ax` lines indented under it;
+  `expect screenshot <name> [<target>]` (baseline beside the file,
+  `--update-screenshots`); `expect download "*.csv" compare expected.csv`
+  (through compara).
+- `primavera.toml` holds defaults, `[server]` (the app, started and
+  stopped with the run) and `[env.<name>]` profiles.
+- After a failure: `primavera fix <file>:<line> --use 1` puts the nearest
+  element's locator in; `--trace on-failure` and `primavera trace <dir>`
+  show each step's page, console and requests.
 
 ## When it fails
 

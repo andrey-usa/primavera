@@ -25,7 +25,7 @@ fn tail(log: &Path) -> String {
 
 /// Start it and wait until its URL answers; `reuse` one already there.
 pub fn start(s: &Server) -> Result<Running, String> {
-    let reuse = s.reuse.unwrap_or(std::env::var_os("CI").is_none());
+    let reuse = s.reuse.unwrap_or(!crate::runner::under_ci());
     if answers(&s.url) {
         if reuse {
             eprintln!("server: {} already answers; using it", s.url);

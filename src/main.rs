@@ -33,9 +33,10 @@ const USAGE: &str = "\
 primavera: plain-text web tests on real Chrome (through navigera)
 
 usage:
-  primavera run [<file.pv|dir>...] [options]   run scenarios (default: the current directory)
-  primavera lint [<file.pv|dir>...]             check files without a browser
-  primavera list [<file.pv|dir>...]             the scenarios a run would take
+  primavera run [<file.pv|file.feature|dir>...] [options]
+                                                run scenarios (default: the current directory)
+  primavera lint [<file|dir>...]                check files without a browser
+  primavera list [<file|dir>...]                the scenarios a run would take
   primavera trace <dir> [<line>]                a recorded trace (--trace): every step, or one in full
   primavera fix [<file>:<line>] [--use <n>] [--all [--min <p>]]
                                                 put a suggestion of the last run (nearest on the page) into the failing step
@@ -44,7 +45,7 @@ usage:
                                                 what a navigera session did, as a scenario (refs as locators)
   primavera record <url> [--out <f.pv>] [--scenario <s>] [--headless] [--for <s>]
                                                 a browser to use by hand; what you do becomes a scenario
-  primavera mcp [--headed]                      an MCP server: navigera's browser tools and primavera_from_session/run/failure/fix
+  primavera mcp [--headed] [--chromium <path>]  an MCP server: navigera's browser tools and primavera_from_session/run/failure/fix
   primavera skill                               the agent skill (the format and commands, for an AI agent)
   primavera --version
 
@@ -54,7 +55,7 @@ run options:
   --secrets <file>      NAME=value lines for ${secret:NAME} (the environment comes first); masked in output
   --grep <text>         only scenarios whose name contains it
   --tag <tag>           only scenarios with this @tag (repeatable: any of them)
-  --workers <n|auto>    scenarios at once (default 1; auto: half the CPUs, at most 8)
+  --workers <n|auto>    scenarios at once (default 1; auto: half the CPUs, at most 8); also -j <n>
   --isolation <how>     context (default): one browser, a browser context per worker; browser: a browser each
   --retries <n>         run a failing scenario again, up to n times; one that then passes is flaky
   --fail-on-flaky       a flaky scenario fails the run
