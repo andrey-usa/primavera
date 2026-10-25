@@ -248,6 +248,7 @@ primavera fix [<file>:<line>] [--use <n>] [--all [--min <p>]]
 primavera navigera <command…>
 primavera from-session <name> [--scenario <name>] [--out <file.pv>]
 primavera record <url> [--out <file.pv>] [--scenario <name>] [--headless] [--for <seconds>]
+primavera record --extend <file.pv> [--scenario <name>] [--base-url <url>] [--secrets <file>]
 primavera mcp [--headed] [--chromium <path>]
 primavera skill          # the agent skill (what an agent reads to write tests)
 primavera --version
@@ -359,6 +360,12 @@ primavera --version
   every step: close the browser or press Ctrl-C to stop. A click into a
   field isn't a step (its value is); typing in a field twice keeps the
   last value.
+- `primavera record --extend t.pv [--scenario <name>]` grows a scenario
+  instead: it runs that scenario (default: the file's last) to its end,
+  `after each` left out, then hands you the browser there; what you do
+  goes in after its last step, the same way, and the rest of the file stays
+  as it was. A scenario that fails before its end is not extended: fix it
+  first.
 - `primavera mcp` is the same loop for an agent over MCP (stdio): navigera's
   browser tools (`browser_navigate`, `browser_snapshot`, `browser_click`,
   … one browser for all of them) beside `primavera_from_session` (what

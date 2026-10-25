@@ -63,6 +63,30 @@ pub struct Options {
     pub compare_report: Vec<String>,
 }
 
+impl Options {
+    /// A run's defaults; `stamp` (seconds) names its evidence directory.
+    pub fn new(stamp: u64) -> Self {
+        Options {
+            base: std::env::var("PRIMAVERA_BASE_URL").ok().filter(|v| !v.is_empty()),
+            vars: BTreeMap::new(),
+            headed: false,
+            chromium: None,
+            expect_ms: 5000,
+            wait_ms: None,
+            grep: None,
+            tags: Vec::new(),
+            evidence: PathBuf::from(format!(".primavera/runs/{stamp}")),
+            run_id: format!("{stamp}-{}", std::process::id()),
+            secrets: BTreeMap::new(),
+            pause: false,
+            auth: Default::default(),
+            update_shots: false,
+            trace: Default::default(),
+            compare_report: vec!["html".into()],
+        }
+    }
+}
+
 /// One step that ran, for the HTML report.
 #[derive(Debug, Clone)]
 pub struct StepResult {
@@ -229,6 +253,11 @@ impl Runner {
         };
         let driver = Driver::launch(&config)?;
         Ok(Runner { driver, opts, fresh: true, attempt: 1, rep: 0 })
+    }
+
+    /// The browser, as the last scenario left it.
+    pub fn driver(&mut self) -> &mut Driver {
+        &mut self.driver
     }
 
     /// Another runner on this one's browser, in a browser context of its

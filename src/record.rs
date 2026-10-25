@@ -6,6 +6,8 @@
 //! known), and says so on the console; primavera reads it from there and
 //! writes the scenario the way `from-session` does. The file is rewritten
 //! after every step, so stopping with Ctrl-C keeps what was done.
+//! `--extend <file.pv>` runs a scenario of that file to its end first and
+//! puts what is done after it in after its last step.
 
 use std::time::{Duration, Instant};
 
@@ -99,69 +101,90 @@ pub fn history(start: &str, mut notes: Vec<Value>, now: &str) -> Vec<Value> {
     out
 }
 
-/// `primavera record <url> [--out <file.pv>] [--scenario <name>] [--headless] [--for <s>]`.
-pub fn main(args: &[String]) -> Result<String, String> {
-    let flag = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1));
-    let values: Vec<&String> = [flag("--out"), flag("--scenario"), flag("--for")].into_iter().flatten().collect();
-    let url = args
-        .iter()
-        .find(|a| !a.starts_with("--") && !values.contains(a))
-        .ok_or("usage: primavera record <url> [--out <file.pv>] [--scenario <name>] [--headless] [--for <seconds>]")?;
-    let url = navigera::protocol::normalize_url(url);
-    let out = flag("--out");
-    let scenario = flag("--scenario").cloned().unwrap_or_else(|| "Recorded".to_string());
-    let until = match flag("--for") {
-        Some(s) => Some(Duration::from_secs_f64(s.parse().map_err(|_| format!("--for takes seconds, not {s:?}"))?)),
-        None => None,
-    };
-    let headless = args.iter().any(|a| a == "--headless");
-    let config = SessionConfig { headed: !headless, ..SessionConfig::default() };
-    let mut driver = Driver::launch(&config).map_err(|e| format!("the browser didn't start: {e:#}"))?;
-    let run = |driver: &mut Driver, words: &[&str]| -> Result<Value, String> {
-        let words: Vec<String> = words.iter().map(|w| w.to_string()).collect();
-        let cmd = crate::runner::parse(&words)?;
-        driver.run(&cmd).map_err(|e| format!("{e:#}"))
-    };
-    run(&mut driver, &["init-script", &recorder()])?;
-    run(&mut driver, &["goto", &url])?;
-    eprintln!(
-        "recording {url}: use the page; {}",
-        match (until, out) {
-            (Some(d), _) => format!("stops in {} s", d.as_secs_f64()),
-            (None, Some(o)) => format!("close the browser or press Ctrl-C to stop ({o} is kept up to date)"),
-            (None, None) => "close the browser or press Ctrl-C to stop".into(),
+/// The notes the page wrote since the last look (`notes` gets them) and
+/// where it is now; `None` once the browser is gone.
+fn look(driver: &mut Driver, notes: &mut Vec<Value>, here: &mut String) -> Option<bool> {
+    let console = run(driver, &["console", "--json", "--clear"]).ok()?;
+    let before = notes.len();
+    for m in console.as_array().into_iter().flatten() {
+        if let Some(json) = m["text"].as_str().and_then(|t| t.strip_prefix(MARK)) {
+            if let Ok(n) = serde_json::from_str::<Value>(json) {
+                eprintln!("  {} {}", n["op"].as_str().unwrap_or(""), n["locators"][0]["flags"]);
+                notes.push(n);
+            }
         }
-    );
+    }
+    if let Ok(u) = run(driver, &["url"]) {
+        *here = u["url"].as_str().unwrap_or(here).to_string();
+    }
+    Some(notes.len() != before)
+}
+
+fn run(driver: &mut Driver, words: &[&str]) -> Result<Value, String> {
+    let words: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+    let cmd = crate::runner::parse(&words)?;
+    driver.run(&cmd).map_err(|e| format!("{e:#}"))
+}
+
+/// Until the browser closes or `until` passes: `write` after each new note.
+fn watch(
+    driver: &mut Driver,
+    until: Option<Duration>,
+    mut write: impl FnMut(&[Value], &str) -> Result<(), String>,
+) -> Result<(Vec<Value>, String), String> {
     let started = Instant::now();
     let mut notes: Vec<Value> = Vec::new();
-    let mut here = url.clone();
-    let mut text = crate::from_session::render(&history(&url, Vec::new(), &url), "recorded", &scenario);
+    let mut here = run(driver, &["url"]).ok().and_then(|u| u["url"].as_str().map(String::from)).unwrap_or_default();
     loop {
         std::thread::sleep(Duration::from_millis(200));
-        let Ok(console) = run(&mut driver, &["console", "--json", "--clear"]) else { break };
-        let before = notes.len();
-        for m in console.as_array().into_iter().flatten() {
-            if let Some(json) = m["text"].as_str().and_then(|t| t.strip_prefix(MARK)) {
-                if let Ok(n) = serde_json::from_str::<Value>(json) {
-                    eprintln!("  {} {}", n["op"].as_str().unwrap_or(""), n["locators"][0]["flags"]);
-                    notes.push(n);
-                }
-            }
-        }
-        if let Ok(u) = run(&mut driver, &["url"]) {
-            here = u["url"].as_str().unwrap_or(&here).to_string();
-        }
-        if notes.len() != before || text.is_empty() {
-            text = crate::from_session::render(&history(&url, notes.clone(), &here), "recorded", &scenario);
-            if let Some(path) = out {
-                std::fs::write(path, &text).map_err(|e| format!("{path}: {e}"))?;
-            }
+        match look(driver, &mut notes, &mut here) {
+            None => break,
+            Some(true) => write(&notes, &here)?,
+            Some(false) => {}
         }
         if until.is_some_and(|d| started.elapsed() >= d) {
             break;
         }
     }
-    text = crate::from_session::render(&history(&url, notes, &here), "recorded", &scenario);
+    Ok((notes, here))
+}
+
+/// `primavera record <url> [--out <file.pv>] [--scenario <name>] [--headless] [--for <s>]`,
+/// or `primavera record --extend <file.pv> [--scenario <name>] [--base-url <url>] [--secrets <file>] …`.
+pub fn main(args: &[String]) -> Result<String, String> {
+    let flag = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1));
+    let until = match flag("--for") {
+        Some(s) => Some(Duration::from_secs_f64(s.parse().map_err(|_| format!("--for takes seconds, not {s:?}"))?)),
+        None => None,
+    };
+    let headless = args.iter().any(|a| a == "--headless");
+    if let Some(file) = flag("--extend") {
+        return extend(file, flag("--scenario"), flag("--base-url"), flag("--secrets"), headless, until);
+    }
+    let values: Vec<&String> = [flag("--out"), flag("--scenario"), flag("--for")].into_iter().flatten().collect();
+    let url = args
+        .iter()
+        .find(|a| !a.starts_with("--") && !values.contains(a))
+        .ok_or("usage: primavera record <url> [--out <file.pv>] [--scenario <name>] [--headless] [--for <seconds>]\n       primavera record --extend <file.pv> [--scenario <name>] [--base-url <url>] [--secrets <file>]")?;
+    let url = navigera::protocol::normalize_url(url);
+    let out = flag("--out");
+    let scenario = flag("--scenario").cloned().unwrap_or_else(|| "Recorded".to_string());
+    let config = SessionConfig { headed: !headless, ..SessionConfig::default() };
+    let mut driver = Driver::launch(&config).map_err(|e| format!("the browser didn't start: {e:#}"))?;
+    run(&mut driver, &["init-script", &recorder()])?;
+    run(&mut driver, &["goto", &url])?;
+    eprintln!("recording {url}: use the page; {}", how_to_stop(until, out.map(String::as_str)));
+    let render = |notes: &[Value], here: &str| {
+        crate::from_session::render(&history(&url, notes.to_vec(), here), "recorded", &scenario)
+    };
+    if let Some(path) = out {
+        std::fs::write(path, render(&[], &url)).map_err(|e| format!("{path}: {e}"))?;
+    }
+    let (notes, here) = watch(&mut driver, until, |notes, here| match out {
+        Some(path) => std::fs::write(path, render(notes, here)).map_err(|e| format!("{path}: {e}")),
+        None => Ok(()),
+    })?;
+    let text = render(&notes, &here);
     driver.session().close();
     match out {
         Some(path) => {
@@ -170,6 +193,117 @@ pub fn main(args: &[String]) -> Result<String, String> {
         }
         None => Ok(text),
     }
+}
+
+fn how_to_stop(until: Option<Duration>, out: Option<&str>) -> String {
+    match (until, out) {
+        (Some(d), _) => format!("stops in {} s", d.as_secs_f64()),
+        (None, Some(o)) => format!("close the browser or press Ctrl-C to stop ({o} is kept up to date)"),
+        (None, None) => "close the browser or press Ctrl-C to stop".into(),
+    }
+}
+
+/// `record --extend`: run the scenario (the file's last, or `name`) to its
+/// end, then record from there; what is done goes in after its last step.
+fn extend(
+    path: &str,
+    name: Option<&String>,
+    base: Option<&String>,
+    secrets: Option<&String>,
+    headless: bool,
+    until: Option<Duration>,
+) -> Result<String, String> {
+    if !path.ends_with(".pv") {
+        return Err(format!("{path}: --extend takes a .pv file (a .feature's steps are in its step blocks)"));
+    }
+    let suites = crate::load(&[std::path::PathBuf::from(path)])?;
+    let mut suite = suites.into_iter().next().ok_or_else(|| format!("{path}: nothing to extend"))?;
+    let scenario = match name {
+        Some(n) => suite.scenarios.iter().rev().find(|s| &s.name == n),
+        None => suite.scenarios.last(),
+    }
+    .cloned()
+    .ok_or_else(|| match name {
+        Some(n) => format!("{path}: no scenario {n:?}"),
+        None => format!("{path}: no scenario to extend"),
+    })?;
+    // Recording goes on where the scenario ends, not after `after each`.
+    suite.after_each.clear();
+    let stamp =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default();
+    let mut opts = crate::runner::Options::new(stamp);
+    opts.headed = !headless;
+    if let Some(b) = base {
+        opts.base = Some(b.clone());
+    }
+    if let Some(p) = secrets {
+        let text = std::fs::read_to_string(p).map_err(|e| format!("--secrets {p}: {e}"))?;
+        opts.secrets = crate::secrets_file(&text).map_err(|e| format!("--secrets {p}: {e}"))?;
+    }
+    if opts.base.is_none() {
+        opts.base = suite.base.clone();
+    }
+    let base = opts.base.clone();
+    let mut r = crate::runner::Runner::launch(opts).map_err(|e| format!("the browser didn't start: {e:#}"))?;
+    let vars = if suite.before_all.is_empty() {
+        Default::default()
+    } else {
+        r.hook(&suite, &suite.before_all, "before all", &Default::default())
+            .map_err(|f| format!("{path}:{}: before all: {}", f.line, f.message))?
+    };
+    eprintln!("running {path}:{} {:?} to its end …", scenario.line, scenario.name);
+    let result = r.run(&suite, &scenario, 1, &vars);
+    if let Some(f) = &result.failure {
+        return Err(format!(
+            "{path}:{}: {:?} fails there, before its end: {}\nfix it first (primavera run {path}), then extend it",
+            f.line, scenario.name, f.message
+        ));
+    }
+    let driver = r.driver();
+    run(driver, &["init-script", &recorder()])?;
+    run(driver, &["eval", &format!("({}, 1)", recorder())])?;
+    run(driver, &["console", "--clear"])?;
+    let start = run(driver, &["url"])?["url"].as_str().unwrap_or("").to_string();
+    eprintln!("recording from {start}: go on; {}", how_to_stop(until, Some(path)));
+    let original = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    let lines: Vec<&str> = original.lines().collect();
+    let (after, indent) = end_of(&lines, scenario.line);
+    let text = |notes: &[Value], here: &str| {
+        let h = history(&start, notes.to_vec(), here);
+        let (steps, _) = crate::from_session::steps(&h[1..], base.as_deref(), Some(start.clone()));
+        let added: Vec<String> = steps.lines().map(|l| format!("{indent}{}", l.trim_start())).collect();
+        let mut out: Vec<String> = lines[..after].iter().map(|l| l.to_string()).collect();
+        out.extend(added);
+        out.extend(lines[after..].iter().map(|l| l.to_string()));
+        (out.join("\n") + if original.ends_with('\n') { "\n" } else { "" }, steps.lines().count())
+    };
+    let (notes, here) = watch(driver, until, |notes, here| {
+        std::fs::write(path, text(notes, here).0).map_err(|e| format!("{path}: {e}"))
+    })?;
+    let (out, added) = text(&notes, &here);
+    std::fs::write(path, out).map_err(|e| format!("{path}: {e}"))?;
+    Ok(format!("{path}: {added} line(s) added to {:?}; check them, then run it\n", scenario.name))
+}
+
+/// Where a scenario's steps end (the index after its last indented line;
+/// `line` is its 1-based header line) and how they are indented.
+fn end_of(lines: &[&str], line: usize) -> (usize, String) {
+    let mut after = line;
+    let mut indent = String::new();
+    for (i, l) in lines.iter().enumerate().skip(line) {
+        if l.trim().is_empty() {
+            continue;
+        }
+        if !l.starts_with([' ', '\t']) {
+            break;
+        }
+        after = i + 1;
+        let own = &l[..l.len() - l.trim_start().len()];
+        if indent.is_empty() || own.len() < indent.len() {
+            indent = own.to_string();
+        }
+    }
+    (after, if indent.is_empty() { "  ".into() } else { indent })
 }
 
 #[cfg(test)]

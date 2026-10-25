@@ -285,19 +285,42 @@ pub fn render(history: &[Value], session: &str, scenario: &str) -> String {
         _ => None,
     });
     let base = first.as_deref().and_then(origin).map(String::from);
-    let rel = |u: &str| match base.as_deref() {
-        Some(b) if u.starts_with(b) && u[b.len()..].starts_with('/') => u[b.len()..].to_string(),
-        Some(b) if u == b => "/".into(),
-        _ => u.to_string(),
-    };
     let mut out = format!(
         "# From navigera session {session}: what it did, refs turned into locators.\n\
          # Read it through: check the locators, keep the expects that matter, add what\n\
          # the test is for.\n"
     );
+    let (steps, secrets) = steps(history, base.as_deref(), None);
+    if !secrets.is_empty() {
+        let names: Vec<String> = secrets.iter().map(|n| format!("${{secret:{n}}}")).collect();
+        out.push_str(&format!(
+            "# Secrets went in as {}: give them with --secrets <file> or the environment.\n",
+            names.join(", ")
+        ));
+    }
+    out.push('\n');
+    if let Some(b) = &base {
+        out.push_str(&format!("base {b}\n\n"));
+    }
+    out.push_str(&format!("scenario {}\n", quote_always(scenario)));
+    if steps.is_empty() {
+        out.push_str("  # the session's history is empty: act in it first (navigera -s <name> goto …)\n");
+    }
+    out.push_str(&steps);
+    out
+}
+
+/// The scenario lines for `history`, URLs relative to `base`, an `expect
+/// url` where an action took the page away from where it was (`at` to
+/// start with); and the `${secret:…}` names they use.
+pub fn steps(history: &[Value], base: Option<&str>, mut at: Option<String>) -> (String, Vec<String>) {
+    let rel = |u: &str| match base {
+        Some(b) if u.starts_with(b) && u[b.len()..].starts_with('/') => u[b.len()..].to_string(),
+        Some(b) if u == b => "/".into(),
+        _ => u.to_string(),
+    };
     let mut steps = String::new();
     let mut secrets: Vec<String> = Vec::new();
-    let mut at: Option<String> = None;
     let mut said = &Value::Null;
     for e in history {
         let Ok(c) = serde_json::from_value::<Command>(e["command"].clone()) else {
@@ -354,23 +377,7 @@ pub fn render(history: &[Value], session: &str, scenario: &str) -> String {
             at = url;
         }
     }
-    if !secrets.is_empty() {
-        let names: Vec<String> = secrets.iter().map(|n| format!("${{secret:{n}}}")).collect();
-        out.push_str(&format!(
-            "# Secrets went in as {}: give them with --secrets <file> or the environment.\n",
-            names.join(", ")
-        ));
-    }
-    out.push('\n');
-    if let Some(b) = &base {
-        out.push_str(&format!("base {b}\n\n"));
-    }
-    out.push_str(&format!("scenario {}\n", quote_always(scenario)));
-    if steps.is_empty() {
-        out.push_str("  # the session's history is empty: act in it first (navigera -s <name> goto …)\n");
-    }
-    out.push_str(&steps);
-    out
+    (steps, secrets)
 }
 
 fn quote_always(s: &str) -> String {

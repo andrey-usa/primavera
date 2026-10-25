@@ -564,6 +564,40 @@ fn a_recording_becomes_a_scenario_that_passes() {
 }
 
 #[test]
+fn a_recording_extends_a_scenario_from_where_it_ends() {
+    let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
+    let dir = std::env::temp_dir().join(format!("pv-extend-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("order.pv");
+    let start = "# An order.\nscenario \"Opens the form\"\n  goto /form?auto=2\n  expect text Order\n\nscenario \"Other\"\n  goto /done\n";
+    std::fs::write(&file, start).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_primavera"))
+        .args(["record", "--extend", file.to_str().unwrap(), "--scenario", "Opens the form"])
+        .args(["--base-url", &site.1, "--headless", "--for", "4"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let pv = std::fs::read_to_string(&file).unwrap();
+    let want = "# An order.\nscenario \"Opens the form\"\n  goto /form?auto=2\n  expect text Order\n  \
+                fill --role textbox --name Email ada@example.com\n  check --role checkbox --name \"Gift wrap\"\n  \
+                click --selector \"#tip >>> button\"\n  select --role combobox --name Size Large\n  \
+                click --role link --name \"Place order\"\n  expect url ends-with /done\n\nscenario \"Other\"\n  goto /done\n";
+    assert_eq!(pv, want);
+    std::fs::write(&file, pv.replace("?auto=2", "")).unwrap();
+    let (code, text) = primavera(&["run", file.to_str().unwrap(), "--base-url", &site.1]);
+    assert_eq!(code, 0, "{text}");
+    // A scenario that fails before its end isn't extended.
+    std::fs::write(&file, "scenario \"Broken\"\n  goto /form\n  expect text Nowhere --timeout-ms 200\n").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_primavera"))
+        .args(["record", "--extend", file.to_str().unwrap(), "--base-url", &site.1, "--headless", "--for", "1"])
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success() && err.contains("fails there, before its end"), "{err}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn an_unsure_failure_asks_the_decision_model_when_there_is_one() {
     let (Some(_turn), Some(site)) = (chrome(), site()) else { return };
     // navigera's stand-in for the model: it picks by words in common.

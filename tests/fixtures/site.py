@@ -30,7 +30,8 @@ LOGIN = """
 """
 
 # `/form` is a form; with `?auto=1` it uses itself, as a person would, for
-# `primavera record` with nobody at the browser.
+# `primavera record` with nobody at the browser (`?auto=2`: after 1.5 s, for
+# `record --extend`, which runs the scenario first).
 FORM = """
 <h1>Order</h1>
 <label>Email <input id=email></label>
@@ -44,13 +45,14 @@ customElements.define('x-tip', class extends HTMLElement { connectedCallback() {
   if (!this.shadowRoot) this.attachShadow({mode: 'open'}).innerHTML = '<button><svg width=12 height=12></svg></button>';
   this.shadowRoot.querySelector('button').onclick = () => { this.dataset.open = '1'; };
 } });
-if (location.search.includes('auto=1')) setTimeout(() => {
+const auto = new URLSearchParams(location.search).get('auto');
+if (auto) setTimeout(() => {
   email.click(); email.value = 'ada@example.com'; email.dispatchEvent(new Event('change', {bubbles: true}));
   gift.click();
   tip.shadowRoot.querySelector('button').click();
   size.value = 'Large'; size.dispatchEvent(new Event('change', {bubbles: true}));
   setTimeout(() => go.click(), 100);
-}, 300);
+}, auto === '2' ? 1500 : 300);
 </script>
 """
 

@@ -136,7 +136,9 @@ primavera navigera -s work quit
 ```
 
 A person can record instead: `primavera record <url> --out tests/login.pv`
-opens a browser; what they do becomes the steps.
+opens a browser; what they do becomes the steps. `primavera record --extend
+tests/login.pv` runs its last scenario to the end and records what they do
+next into it.
 
 Then read `tests/login.pv`: keep the proposed `expect url` lines that
 matter, add the `expect` the test is for, and run it.

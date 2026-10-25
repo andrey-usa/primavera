@@ -45,6 +45,8 @@ usage:
                                                 what a navigera session did, as a scenario (refs as locators)
   primavera record <url> [--out <f.pv>] [--scenario <s>] [--headless] [--for <s>]
                                                 a browser to use by hand; what you do becomes a scenario
+  primavera record --extend <f.pv> [--scenario <s>] [--base-url <url>] [--secrets <file>]
+                                                run a scenario to its end, then record more steps into it
   primavera mcp [--headed] [--chromium <path>]  an MCP server: navigera's browser tools and primavera_from_session/run/failure/fix
   primavera skill                               the agent skill (the format and commands, for an AI agent)
   primavera --version
@@ -135,24 +137,7 @@ fn parse_args() -> Result<Args, String> {
     let mut paths = Vec::new();
     let stamp =
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default();
-    let mut opts = runner::Options {
-        base: std::env::var("PRIMAVERA_BASE_URL").ok().filter(|v| !v.is_empty()),
-        vars: BTreeMap::new(),
-        headed: false,
-        chromium: None,
-        expect_ms: 5000,
-        wait_ms: None,
-        grep: None,
-        tags: Vec::new(),
-        evidence: PathBuf::from(format!(".primavera/runs/{stamp}")),
-        run_id: format!("{stamp}-{}", std::process::id()),
-        secrets: BTreeMap::new(),
-        pause: false,
-        auth: Default::default(),
-        update_shots: false,
-        trace: Default::default(),
-        compare_report: vec!["html".into()],
-    };
+    let mut opts = runner::Options::new(stamp);
     let mut junit = None;
     let mut cucumber = None;
     let mut allure = None;
