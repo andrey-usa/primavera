@@ -276,6 +276,9 @@ customElements.define('acme-coupon', class extends HTMLElement {
     const root = this.attachShadow({ mode: 'open' });
     root.innerHTML = `<style>input{padding:6px}</style><label>Coupon code <input id="code" placeholder="Enter code"></label>
       <button id="apply">Apply coupon</button> <span id="msg" role="status"></span>`;
+    // Applied before (the page reloads 400 ms after Apply): still says so.
+    const applied = this.getAttribute('applied');
+    if (applied) root.getElementById('msg').textContent = `Coupon ${applied} applied: −${this.getAttribute('percent')}%`;
     root.getElementById('apply').addEventListener('click', async () => {
       const res = await fetch('/api/coupon', { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ code: root.getElementById('code').value }) });
@@ -304,6 +307,7 @@ def cart_page(sid):
         <td><label class="muted" for="qty-{p['id']}">Qty</label><input id="qty-{p['id']}" type="number" min="0" value="{q}" data-qty="{p['id']}" style="width:60px"></td>
         <td>${p['price'] * q:.2f}</td><td><button class="secondary" data-remove="{p['id']}" aria-label="Remove {html.escape(p['name'])}">Remove</button></td></tr>"""
         for p, q in lines)
+    applied = f' applied="{html.escape(code)}" percent="{int(COUPONS.get(code, 0) * 100)}"' if code else ''
     if not lines:
         body = '<h1>Your cart</h1><p>Your cart is empty. <a href="/shop">Continue shopping</a></p>'
     else:
@@ -311,7 +315,7 @@ def cart_page(sid):
 <table><thead><tr><th>Product</th><th>Price</th><th>Quantity</th><th>Line total</th><th></th></tr></thead><tbody>{rows}</tbody></table>
 <p>Subtotal: <b id="subtotal">${subtotal:.2f}</b></p>
 {f'<p>Discount ({html.escape(code)}): −${discount:.2f}</p>' if code else ''}
-<acme-coupon></acme-coupon>
+<acme-coupon{applied}></acme-coupon>
 <p><button id="checkout">Proceed to checkout</button></p>
 <script>{COUPON_JS}
 document.addEventListener('click', async (e) => {{
