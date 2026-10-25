@@ -455,6 +455,7 @@ fn a_navigera_session_becomes_a_scenario_that_passes() {
     };
     nv(&["click", &r("button \"Accept all\"")]);
     nv(&["fill", &r("textbox \"Email\""), "ada@example.com"]);
+    nv(&["fill", &r("textbox \"Password\""), "hunter2-not-in-the-file"]);
     nv(&["get", "value", "--label", "Email"]);
     nv(&["click", &r("link \"Shop\"")]);
     let out = Command::new(env!("CARGO_BIN_EXE_primavera"))
@@ -467,12 +468,17 @@ fn a_navigera_session_becomes_a_scenario_that_passes() {
     assert!(pv.contains("scenario \"Shops\"\n  goto /login\n"), "{pv}");
     assert!(pv.contains("click --role button --name \"Accept all\"\n"), "{pv}");
     assert!(pv.contains("fill --role textbox --name Email ada@example.com\n"), "{pv}");
+    assert!(pv.contains("fill --role textbox --name Password ${secret:PASSWORD}\n"), "{pv}");
+    assert!(!pv.contains("hunter2"), "{pv}");
     assert!(pv.contains("click --role link --name Shop\n  expect url ends-with /shop\n"), "{pv}");
     assert!(!pv.contains("get value") && !pv.contains("left out"), "reads stay out, every ref found again: {pv}");
     // And it runs, from a fresh browser.
     let file = dir.join("shops.pv");
     std::fs::write(&file, &pv).unwrap();
-    let (code, text) = primavera(&["run", file.to_str().unwrap(), "--base-url", &site.1]);
+    let secrets = dir.join("secrets.env");
+    std::fs::write(&secrets, "PASSWORD=from-the-secrets-file\n").unwrap();
+    let (code, text) =
+        primavera(&["run", file.to_str().unwrap(), "--base-url", &site.1, "--secrets", secrets.to_str().unwrap()]);
     assert_eq!(code, 0, "{pv}\n{text}");
     std::fs::remove_dir_all(&dir).ok();
 }

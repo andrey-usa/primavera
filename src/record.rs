@@ -25,7 +25,12 @@ fn recorder() -> String {
   let seq = 0;
   const note = (el, step) => {{
     const n = ++seq, at = Date.now(), url = location.href;
-    locate(el).then((r) => console.debug({mark} + JSON.stringify({{ ...step, n, at, url, locators: r.locators || [] }})),
+    locate(el).then((r) => {{
+      // A password field's value stays out of the console and the file.
+      const s = {{ ...step }};
+      if (r.secret) {{ s.value = ''; s.secret = true; }}
+      console.debug({mark} + JSON.stringify({{ ...s, n, at, url, locators: r.locators || [], xframe: !!r.xframe }}));
+    }},
       () => console.debug({mark} + JSON.stringify({{ ...step, n, at, url, locators: [] }})));
   }};
   const target = (e) => {{ let el = e.composedPath ? e.composedPath()[0] : e.target; return el && el.nodeType === 1 ? el : el && el.parentElement; }};
@@ -47,12 +52,12 @@ fn recorder() -> String {
     if (el.matches(TOGGLE)) note(el, {{ op: 'set-checked', checked: el.checked }});
     else if (el.tagName === 'SELECT') note(el, {{ op: 'select', value: [...el.selectedOptions].map((o) => (o.label || o.text).trim()) }});
     else if (el.type === 'file') note(el, {{ op: 'upload', files: [...el.files].map((f) => f.name) }});
-    else if ('value' in el) note(el, {{ op: 'fill', value: el.type === 'password' ? '${{secret:PASSWORD}}' : el.value }});
+    else if ('value' in el) note(el, {{ op: 'fill', value: el.value }});
   }}, true);
   document.addEventListener('keydown', (e) => {{
     const el = target(e);
     if (e.key !== 'Enter' || !el || !el.matches('input')) return;
-    note(el, {{ op: 'fill', value: el.type === 'password' ? '${{secret:PASSWORD}}' : el.value }});
+    note(el, {{ op: 'fill', value: el.value }});
     note(el, {{ op: 'press', key: 'Enter' }});
   }}, true);
 }})()"#,
@@ -83,7 +88,13 @@ pub fn history(start: &str, mut notes: Vec<Value>, now: &str) -> Vec<Value> {
                 command[k] = n[k].clone();
             }
         }
-        out.push(json!({"command": command, "locators": n["locators"], "url": after}));
+        // In a frame of another origin the page can't name the frame: left out.
+        let locators = if n["xframe"] == true { json!([]) } else { n["locators"].clone() };
+        let mut entry = json!({"command": command, "locators": locators, "url": after});
+        if n["secret"] == true {
+            entry["secret"] = json!(true);
+        }
+        out.push(entry);
     }
     out
 }
@@ -183,6 +194,6 @@ mod tests {
             ),
             "{pv}"
         );
-        assert!(recorder().contains("async function (el)"), "the page gets navigera's locate");
+        assert!(recorder().contains("const locate = async function (el"), "the page gets navigera's locate");
     }
 }

@@ -3,7 +3,7 @@
 //! has each action, and for one on a ref the locators that found its
 //! element again just before it ran; the most stable of them replaces the
 //! ref. A navigation gets a proposed `expect url`, and a value typed into a
-//! password field becomes `${secret:PASSWORD}`.
+//! password field becomes `${secret:NAME}`, named after the field.
 
 use navigera::protocol::{Command, SessionConfig, TargetArgs};
 use serde_json::Value;
@@ -64,7 +64,40 @@ fn flags(t: &TargetArgs, locators: &Value) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
-/// Does the target look like a password field?
+/// The words that name a field: its locators' name, label or placeholder,
+/// else the target's own.
+fn field_name(t: &TargetArgs, locators: &Value) -> String {
+    let from_locators = locators.as_array().into_iter().flatten().find_map(|l| {
+        let f: Vec<&str> = l["flags"].as_array()?.iter().filter_map(Value::as_str).collect();
+        f.windows(2).find(|p| matches!(p[0], "--name" | "--label" | "--placeholder")).map(|p| p[1].to_string())
+    });
+    from_locators
+        .or_else(|| {
+            t.name.clone().or_else(|| t.label.clone()).or_else(|| t.placeholder.clone()).or_else(|| t.testid.clone())
+        })
+        .unwrap_or_default()
+}
+
+/// `${secret:…}`'s name for a field: its name in capitals (`TOKEN`,
+/// `CONFIRM_PASSWORD`), `PASSWORD` when it has none.
+fn secret_name(t: &TargetArgs, locators: &Value) -> String {
+    let mut name = String::new();
+    for c in field_name(t, locators).chars() {
+        if c.is_ascii_alphanumeric() {
+            name.push(c.to_ascii_uppercase());
+        } else if !name.ends_with('_') && !name.is_empty() {
+            name.push('_');
+        }
+    }
+    let name = name.trim_end_matches('_').to_string();
+    if name.is_empty() {
+        "PASSWORD".into()
+    } else {
+        name
+    }
+}
+
+/// Does the target look like a password field (when navigera didn't say)?
 fn secret(t: &TargetArgs, locators: &Value) -> bool {
     let mut words: Vec<String> =
         [&t.name, &t.label, &t.placeholder, &t.selector, &t.testid].into_iter().flatten().cloned().collect();
@@ -82,7 +115,12 @@ fn secret(t: &TargetArgs, locators: &Value) -> bool {
 }
 
 /// One recorded action as a step, or why it isn't one.
-fn step(c: &Command, locators: &Value, rel: &dyn Fn(&str) -> String) -> Result<Vec<String>, String> {
+fn step(
+    c: &Command,
+    locators: &Value,
+    rel: &dyn Fn(&str) -> String,
+    secret: Option<&str>,
+) -> Result<Vec<String>, String> {
     let on = |t: &TargetArgs| flags(t, locators);
     let mut w: Vec<String> = Vec::new();
     let mut push = |words: &[&str]| w.extend(words.iter().map(|s| s.to_string()));
@@ -118,7 +156,10 @@ fn step(c: &Command, locators: &Value, rel: &dyn Fn(&str) -> String) -> Result<V
         Command::Fill { target, value, .. } | Command::Type { target, value, .. } => {
             push(&[if matches!(c, Command::Fill { .. }) { "fill" } else { "type" }]);
             w.extend(on(target)?);
-            w.push(if secret(target, locators) { "${secret:PASSWORD}".into() } else { value.clone() });
+            w.push(match secret {
+                Some(name) => format!("${{secret:{name}}}"),
+                None => value.clone(),
+            });
         }
         Command::InsertText { target, value, .. } => {
             push(&["insert-text", value]);
@@ -174,6 +215,35 @@ fn step(c: &Command, locators: &Value, rel: &dyn Fn(&str) -> String) -> Result<V
             (Some(a), Some(b), None) => push(&["drag", a, b]),
             _ => return Err("a drag between refs (write it with selectors)".into()),
         },
+        Command::Wait { selector, text, url, gone, js, frame, ms, idle, timeout_ms, download } => {
+            push(&["wait"]);
+            let mut add = |flag: &str, v: &Option<String>| {
+                if let Some(v) = v {
+                    w.extend([flag.to_string(), v.clone()]);
+                }
+            };
+            add("--selector", selector);
+            add("--text", text);
+            add("--url", url);
+            add("--gone", gone);
+            add("--js", js);
+            add("--frame", frame);
+            if let Some(m) = ms {
+                w.extend(["--ms".into(), m.to_string()]);
+            }
+            if *idle {
+                w.push("--idle".into());
+            }
+            if let Some(t) = timeout_ms {
+                w.extend(["--timeout-ms".into(), t.to_string()]);
+            }
+            if let Some(d) = download {
+                w.push("--download".into());
+                if !d.is_empty() {
+                    w.push(d.clone());
+                }
+            }
+        }
         Command::Mouse { action, .. } => {
             return Err(format!("mouse {action} at coordinates (kept out: they move with the layout)"))
         }
@@ -203,7 +273,7 @@ pub fn render(history: &[Value], session: &str, scenario: &str) -> String {
          # the test is for.\n"
     );
     let mut steps = String::new();
-    let mut secrets = false;
+    let mut secrets: Vec<String> = Vec::new();
     let mut at: Option<String> = None;
     for e in history {
         let Ok(c) = serde_json::from_value::<Command>(e["command"].clone()) else {
@@ -211,9 +281,22 @@ pub fn render(history: &[Value], session: &str, scenario: &str) -> String {
             continue;
         };
         let url = e["url"].as_str().map(String::from);
-        match step(&c, &e["locators"], &rel) {
+        // A password field (navigera says so; an older one, by its name).
+        let secret = match &c {
+            Command::Fill { target, .. } | Command::Type { target, .. } => {
+                let yes = match e.get("secret") {
+                    Some(v) => v == true,
+                    None => secret(target, &e["locators"]),
+                };
+                yes.then(|| secret_name(target, &e["locators"]))
+            }
+            _ => None,
+        };
+        match step(&c, &e["locators"], &rel, secret.as_deref()) {
             Ok(words) => {
-                secrets |= words.iter().any(|w| w == "${secret:PASSWORD}");
+                if let Some(n) = secret.filter(|n| !secrets.contains(n)) {
+                    secrets.push(n);
+                }
                 steps.push_str(&format!("  {}\n", words.iter().map(|w| quote(w)).collect::<Vec<_>>().join(" ")));
                 // Where it went, unless the step said so itself.
                 let went = !matches!(c, Command::Goto { .. } | Command::Open { .. } | Command::TabNew { .. });
@@ -231,8 +314,12 @@ pub fn render(history: &[Value], session: &str, scenario: &str) -> String {
             at = url;
         }
     }
-    if secrets {
-        out.push_str("# A password went in as ${secret:PASSWORD}: give it with --secrets <file> or the environment.\n");
+    if !secrets.is_empty() {
+        let names: Vec<String> = secrets.iter().map(|n| format!("${{secret:{n}}}")).collect();
+        out.push_str(&format!(
+            "# Secrets went in as {}: give them with --secrets <file> or the environment.\n",
+            names.join(", ")
+        ));
     }
     out.push('\n');
     if let Some(b) = &base {
@@ -287,20 +374,25 @@ mod tests {
             json!({"command": {"op": "click", "ref": 39}, "locators": role("button", "Accept all"), "url": "http://127.0.0.1:8000/login"}),
             json!({"command": {"op": "fill", "ref": 29, "value": "ada@example.com"}, "locators": role("textbox", "Email"), "url": "http://127.0.0.1:8000/login"}),
             json!({"command": {"op": "fill", "label": "Password", "value": "hunter2"}, "url": "http://127.0.0.1:8000/login"}),
+            json!({"command": {"op": "fill", "ref": 30, "value": "s3cret"}, "secret": true, "locators": role("textbox", "Token Gamma"), "url": "http://127.0.0.1:8000/login"}),
+            json!({"command": {"op": "fill", "ref": 31, "value": "plain"}, "secret": false, "locators": role("textbox", "Password hint"), "url": "http://127.0.0.1:8000/login"}),
             json!({"command": {"op": "click", "ref": 35}, "locators": role("button", "Sign in"), "url": "http://127.0.0.1:8000/account?tab=1"}),
             json!({"command": {"op": "click", "ref": 50}, "locators": [], "url": "http://127.0.0.1:8000/account?tab=1"}),
             json!({"command": {"op": "mouse", "action": "click", "x": 10.0, "y": 20.0}, "url": "http://127.0.0.1:8000/account?tab=1"}),
             json!({"command": {"op": "goto", "url": "https://other.test/x"}, "url": "https://other.test/x"}),
+            json!({"command": {"op": "wait", "download": "*.csv", "timeout_ms": 9000.0}, "url": "https://other.test/x"}),
         ];
         let pv = render(&h, "work", "Signs in");
         let want = "base http://127.0.0.1:8000\n\nscenario \"Signs in\"\n  goto /login\n  \
                     click --role button --name \"Accept all\"\n  fill --role textbox --name Email ada@example.com\n  \
-                    fill --label Password ${secret:PASSWORD}\n  click --role button --name \"Sign in\"\n  \
+                    fill --label Password ${secret:PASSWORD}\n  fill --role textbox --name \"Token Gamma\" ${secret:TOKEN_GAMMA}\n  \
+                    fill --role textbox --name \"Password hint\" plain\n  click --role button --name \"Sign in\"\n  \
                     expect url ends-with /account?tab=1\n  # left out: ref 50: no locator found it again\n  \
                     # left out: mouse click at coordinates (kept out: they move with the layout)\n  \
-                    goto https://other.test/x\n";
+                    goto https://other.test/x\n  wait --timeout-ms 9000 --download *.csv\n";
         assert!(pv.ends_with(want), "{pv}");
-        assert!(pv.contains("--secrets"), "{pv}");
+        assert!(pv.contains("${secret:PASSWORD}, ${secret:TOKEN_GAMMA}: give them with --secrets"), "{pv}");
+        assert!(!pv.contains("s3cret") && !pv.contains("hunter2"), "{pv}");
         // What it writes reads back as a scenario.
         let s = crate::suite::parse(std::path::Path::new("t.pv"), &pv);
         assert!(s.is_ok(), "{pv}\n{:?}", s.err());

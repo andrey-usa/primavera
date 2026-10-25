@@ -307,13 +307,15 @@ primavera mcp [--headed] [--chromium <path>]
   way an agent does (`primavera navigera -s work start`, `goto`, `ax`,
   `click 12`, `fill 15 ada@example.com`) with no second program to
   install. `primavera from-session work` then writes what that session did
-  as a scenario: each action once (reads, waits and `eval` left out), every
-  ref replaced by the most stable locator that found its element again just
-  before the action (test id, role and name, label, placeholder, text, CSS;
+  as a scenario: each action once, and the waits between (reads and `eval`
+  left out), every ref replaced by the most stable locator that found its
+  element again just before the action (test id, role and name, label, placeholder, text, CSS;
   navigera's `locate`, each checked on the page), `base` from the first
   `goto`, an `expect url` where an action moved the page, and a value typed
-  into a password field as `${secret:PASSWORD}`. What it can't keep (a
-  mouse at coordinates, a ref no locator found again) is a `# left out:`
+  into a password field (`type=password`, as navigera's `locate` says) as
+  `${secret:NAME}`, named after the field (`${secret:PASSWORD}`,
+  `${secret:CONFIRM_PASSWORD}`). What it can't keep (a mouse at
+  coordinates, a ref no locator found again) is a `# left out:`
   line. Read it through, keep the expects that matter, add the ones the
   test is for. A session started by a plain `navigera` works too when that
   navigera has `history`.
@@ -322,7 +324,8 @@ primavera mcp [--headed] [--chromium <path>]
   you do it, with the most stable locator that finds the element (the same
   `locate` as `from-session`, run in the page at that moment, so a click
   that navigates away is still known), an `expect url` where the page
-  moved, a password as `${secret:PASSWORD}`. The file is rewritten after
+  moved, a password field's value as `${secret:NAME}` (never written
+  down). The file is rewritten after
   every step: close the browser or press Ctrl-C to stop. A click into a
   field isn't a step (its value is); typing in a field twice keeps the
   last value.
