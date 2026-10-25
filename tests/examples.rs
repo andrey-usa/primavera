@@ -221,6 +221,50 @@ fn http_calls_share_cookies_with_the_browser() {
     assert!(out.contains("GET http://127.0.0.1:9/: "), "{out}");
 }
 
+#[test]
+fn feature_files_run_with_the_runs_steps_and_report_cucumber_json() {
+    let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
+    let report = std::env::temp_dir().join(format!("pv-cucumber-{}.json", std::process::id()));
+    let (code, out) = primavera(&[
+        "run",
+        "tests/fixtures/features",
+        "--base-url",
+        &site.1,
+        "--cucumber",
+        &report.display().to_string(),
+    ]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("3 passed, 0 failed"), "{out}");
+    let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&report).unwrap()).unwrap();
+    assert_eq!(j[0]["name"], "Signing in");
+    assert_eq!(j[0]["elements"].as_array().map(Vec::len), Some(3));
+    let first = &j[0]["elements"][0];
+    assert_eq!(first["steps"][0]["keyword"], "Given ");
+    assert!(first["steps"].as_array().unwrap().iter().all(|s| s["result"]["status"] == "passed"), "{first}");
+    // A failure: the step that failed, and the ones after it skipped.
+    let (code, out) = primavera(&[
+        "run",
+        "tests/fixtures/features-fail.feature",
+        "--base-url",
+        &site.1,
+        "--timeout-ms",
+        "300",
+        "--cucumber",
+        &report.display().to_string(),
+    ]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("Then the title is \"Nope\""), "{out}");
+    let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&report).unwrap()).unwrap();
+    let statuses: Vec<&str> = j[0]["elements"][0]["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["result"]["status"].as_str().unwrap())
+        .collect();
+    assert_eq!(statuses, ["passed", "failed", "skipped"]);
+    std::fs::remove_file(&report).ok();
+}
+
 /// A GET to the fixture site, its body.
 fn fetch(site: &Site, path: &str) -> String {
     use std::io::{Read, Write};

@@ -582,6 +582,7 @@ impl Runner {
                 }
                 Ok(())
             }
+            Action::Gherkin(text) => Err(format!("no step matches {text:?}")),
             Action::Optional(inner) => {
                 if let Err(e) = self.action(inner, step, scope, suite, depth) {
                     scope.notes.push(format!("optional step at line {} didn't happen: {e}", step.line));

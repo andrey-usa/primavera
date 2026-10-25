@@ -162,13 +162,44 @@ milestones are in agent-guidance `plans/prova.md`.
   (`no line matches \`- combobox "Country" value="Mexico"\`; nearest:
   \`- combobox "Country" value="Canada"\``).
 
+## Gherkin
+
+`.feature` files run as they are, beside `.pv` files (no generated code):
+`Feature`, `Background` (before each scenario), `Scenario`/`Example`,
+`Scenario Outline` with `Examples` tables (`<column>` filled in; one
+scenario per row, named by its values when the name has no `<…>`),
+`Rule`, tags, and `Given`/`When`/`Then`/`And`/`But`/`*` steps.
+
+A step is one of the run's own `step` blocks, from any `.pv` file it loads:
+
+```text
+step "I sign in with {password}"
+  fill --label Password ${password}
+  click --text "Sign in"
+```
+
+`{name}` takes a quoted value or one word and is `${name}` in the steps
+under it. Else it is a phrase of the built-in book: `I open "/cart"` (`go
+to`, `visit`, `am on`), `I click "Apply"`, `I fill "Email" with "a@b.c"`,
+`I type "x" into "Search"`, `I select "Canada" from "Country"`, `I check
+"Terms"`, `I uncheck …`, `I press "Enter"`, `I wait for "Saved"`, `I see
+"Saved"`, `I don't see "Error"`, `the URL is|contains|starts with|ends
+with|matches "…"`, `the title is|contains … "…"`. A step nothing matches is
+a file error that says how to write it. Data tables and doc strings under a
+step aren't supported yet.
+
+`--cucumber <file>` writes Cucumber JSON for the `.feature` files, step by
+step (passed, failed, skipped, with times), for test-management importers
+and Allure; `--junit`, `--html` and the console report them like any
+scenario.
+
 ## Running
 
 ```text
-primavera run [<file.pv|dir>...] [--base-url <url>] [--var k=v] [--grep <text>] [--tag <tag>]
+primavera run [<file.pv|file.feature|dir>...] [--base-url <url>] [--var k=v] [--grep <text>] [--tag <tag>]
               [--workers <n|auto>] [--isolation context|browser] [--retries <n>] [--fail-on-flaky] [--shard <i/n>]
               [--repeat <n>] [--shuffle [<seed>]]
-              [--reporter console|jsonl|github] [--junit <file>] [--html <file>] [--json]
+              [--reporter console|jsonl|github] [--junit <file>] [--cucumber <file>] [--html <file>] [--json]
               [--timeout-ms <ms>] [--wait-ms <ms>] [--headed] [--chromium <path>]
               [--secrets <file>] [--pause-on-failure]
 primavera lint [<file.pv|dir>...]

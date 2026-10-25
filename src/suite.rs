@@ -78,6 +78,8 @@ pub enum Action {
         timeout_ms: Option<u64>,
         steps: Vec<Step>,
     },
+    /// A `.feature` step as written, until [`resolve`] finds what it does.
+    Gherkin(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -185,9 +187,19 @@ pub struct Flow {
     pub steps: Vec<Step>,
 }
 
+/// A `.feature` file's `Feature:` line.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Feature {
+    pub name: String,
+    pub line: usize,
+    pub tags: Vec<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Suite {
     pub file: PathBuf,
+    /// Set for a `.feature` file.
+    pub feature: Option<Feature>,
     pub base: Option<String>,
     pub vars: BTreeMap<String, String>,
     /// Once for the file, before its first scenario; what it saves the
@@ -455,6 +467,7 @@ pub fn unset_vars(suite: &Suite, sc: &Scenario, run_vars: &[String]) -> Vec<(usi
             Action::Optional(inner) => words(inner),
             Action::As(name) => vec![name.clone()],
             Action::Exec { argv, .. } => argv.clone(),
+            Action::Gherkin(_) => Vec::new(),
             Action::Http { url, headers, body, .. } => {
                 std::iter::once(url).chain(headers).chain(body).cloned().collect()
             }
@@ -672,6 +685,22 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
                 );
                 block = Block::Flow(name.to_string());
             }
+            Some("step") => {
+                // step "I sign in as {email}": a step for .feature files.
+                let pattern = match words.as_slice() {
+                    [_, p] if !p.trim().is_empty() => p.clone(),
+                    _ => return Err(err(line_no, "expected `step \"<words, {placeholders}>\"`".into())),
+                };
+                let (_, params) = crate::gherkin::step_pattern(&pattern).map_err(|m| err(line_no, m))?;
+                let name = format!("step {pattern:?}");
+                if suite.flows.contains_key(&name) {
+                    return Err(err(line_no, format!("a second step {pattern:?}")));
+                }
+                suite
+                    .flows
+                    .insert(name.clone(), Flow { name: name.clone(), params, file: file.to_path_buf(), line: line_no, steps: Vec::new() });
+                block = Block::Flow(name);
+            }
             Some("scenario") => {
                 let name = words.get(1).ok_or_else(|| err(line_no, "expected `scenario \"name\"`".into()))?.clone();
                 let mut tags = Vec::new();
@@ -773,6 +802,23 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
 /// top. Checks that every `run` names a flow with the right arguments.
 pub fn resolve(suites: &mut [Suite]) -> Result<(), ParseError> {
     for suite in suites.iter_mut() {
+        resolve_uses(suite)?;
+    }
+    // A .feature file's steps: the `step` blocks of every .pv file in the run.
+    let defs: Vec<Flow> =
+        suites.iter().flat_map(|s| s.flows.values()).filter(|f| f.name.starts_with("step \"")).cloned().collect();
+    for suite in suites.iter_mut() {
+        if suite.feature.is_some() {
+            crate::gherkin::resolve(suite, &defs)?;
+        }
+        check_suite(suite)?;
+    }
+    Ok(())
+}
+
+/// `use <file.pv>`: the flows, auths and `set`s of the files it names.
+fn resolve_uses(suite: &mut Suite) -> Result<(), ParseError> {
+    {
         let mut seen = std::collections::BTreeSet::new();
         let mut todo: Vec<(usize, PathBuf)> = suite.uses.clone();
         while let Some((line, path)) = todo.pop() {
@@ -794,6 +840,12 @@ pub fn resolve(suites: &mut [Suite]) -> Result<(), ParseError> {
             }
             todo.extend(used.uses);
         }
+    }
+    Ok(())
+}
+
+fn check_suite(suite: &Suite) -> Result<(), ParseError> {
+    {
         // Every `run`, wherever it is, names a known flow; every `as` a
         // known auth.
         fn check(steps: &[Step], file: &Path, suite: &Suite) -> Result<(), ParseError> {
@@ -945,7 +997,7 @@ fn parse_step(line: &str) -> Result<Action, String> {
     parse_words(&words)
 }
 
-fn parse_words(words: &[String]) -> Result<Action, String> {
+pub fn parse_words(words: &[String]) -> Result<Action, String> {
     match words.first().map(String::as_str) {
         Some("expect") => Ok(Action::Expect(crate::expect::parse(&words[1..])?)),
         Some("save") => {
@@ -1081,7 +1133,7 @@ pub fn discover(paths: &[PathBuf]) -> std::io::Result<Vec<PathBuf>> {
             }
             if p.is_dir() {
                 walk(&p, out)?;
-            } else if p.extension().and_then(|e| e.to_str()) == Some("pv") {
+            } else if matches!(p.extension().and_then(|e| e.to_str()), Some("pv" | "feature")) {
                 out.push(p);
             }
         }

@@ -3,6 +3,7 @@
 
 mod axtree;
 mod expect;
+mod gherkin;
 mod http;
 mod nearest;
 mod report;
@@ -45,6 +46,7 @@ run options:
   --reporter <name>     console (default), jsonl (one JSON object per scenario on stdout), github
                         (workflow annotations; on by itself under GitHub Actions); repeatable
   --junit <file>        also write JUnit XML
+  --cucumber <file>     also write Cucumber JSON for the .feature files (step by step)
   --html <file>         also write the run as one HTML page (steps, times, failures with their screenshot)
   --json                print what the scenarios saved, as one JSON object, at the end
   --timeout-ms <ms>     how long an expect retries (default 5000)
@@ -62,6 +64,7 @@ struct Args {
     paths: Vec<PathBuf>,
     opts: runner::Options,
     junit: Option<PathBuf>,
+    cucumber: Option<PathBuf>,
     html: Option<PathBuf>,
     workers: usize,
     retries: u32,
@@ -97,6 +100,7 @@ fn parse_args() -> Result<Args, String> {
         auth: Default::default(),
     };
     let mut junit = None;
+    let mut cucumber = None;
     let mut html = None;
     let mut base_flag = None;
     let mut workers = 1usize;
@@ -136,6 +140,7 @@ fn parse_args() -> Result<Args, String> {
             "--grep" => opts.grep = Some(val("--grep")?),
             "--tag" => opts.tags.push(val("--tag")?.trim_start_matches('@').to_string()),
             "--junit" => junit = Some(PathBuf::from(val("--junit")?)),
+            "--cucumber" => cucumber = Some(PathBuf::from(val("--cucumber")?)),
             "--html" => html = Some(PathBuf::from(val("--html")?)),
             "--timeout-ms" => {
                 let v = val("--timeout-ms")?;
@@ -218,6 +223,7 @@ fn parse_args() -> Result<Args, String> {
         paths,
         opts,
         junit,
+        cucumber,
         html,
         workers,
         retries,
@@ -254,12 +260,16 @@ fn secrets_file(text: &str) -> Result<BTreeMap<String, String>, String> {
 fn load(paths: &[PathBuf]) -> Result<Vec<suite::Suite>, String> {
     let files = suite::discover(paths).map_err(|e| format!("reading {:?}: {e}", paths))?;
     if files.is_empty() {
-        return Err("no .pv files found".into());
+        return Err("no .pv or .feature files found".into());
     }
     let mut suites = Vec::new();
     let mut errors = Vec::new();
     for f in files {
         match std::fs::read_to_string(&f) {
+            Ok(text) if f.extension().is_some_and(|e| e == "feature") => match gherkin::parse(&f, &text) {
+                Ok(s) => suites.push(s),
+                Err(e) => errors.push(e.to_string()),
+            },
             Ok(text) => match suite::parse(&f, &text) {
                 Ok(s) => suites.push(s),
                 Err(e) => errors.push(e.to_string()),
@@ -486,6 +496,11 @@ fn run(args: Args) -> ExitCode {
         println!("{}", serde_json::Value::Object(saved));
     }
     Timings::save(&results);
+    if let Some(path) = &args.cucumber {
+        if let Err(e) = std::fs::write(path, gherkin::cucumber(&results, &suites)) {
+            eprintln!("could not write {}: {e}", path.display());
+        }
+    }
     if let Some(path) = &args.junit {
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             let _ = std::fs::create_dir_all(dir);
