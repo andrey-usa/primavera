@@ -470,7 +470,7 @@ fn a_navigera_session_becomes_a_scenario_that_passes() {
     assert!(pv.contains("fill --role textbox --name Email ada@example.com\n"), "{pv}");
     assert!(pv.contains("fill --role textbox --name Password ${secret:PASSWORD}\n"), "{pv}");
     assert!(!pv.contains("hunter2"), "{pv}");
-    assert!(pv.contains("click --role link --name Shop\n  expect url ends-with /shop\n"), "{pv}");
+    assert!(pv.contains("click --role link --name Shop\n  expect url ends-with /shop\n  expect text Shop\n"), "{pv}");
     assert!(!pv.contains("get value") && !pv.contains("left out"), "reads stay out, every ref found again: {pv}");
     // And it runs, from a fresh browser.
     let file = dir.join("shops.pv");

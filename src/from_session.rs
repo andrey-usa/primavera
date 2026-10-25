@@ -255,6 +255,28 @@ fn step(
     Ok(w)
 }
 
+/// What a page says that the one before it didn't: its heading if that
+/// changed, and status or alert messages that are new (not ones still
+/// loading, `…`).
+fn proposals(before: &Value, after: &Value) -> Vec<String> {
+    let strs = |v: &Value| -> Vec<String> {
+        v.as_array().into_iter().flatten().filter_map(|s| s.as_str().map(String::from)).collect()
+    };
+    let mut out = Vec::new();
+    let h1 = after["h1"].as_str().unwrap_or("");
+    if !h1.is_empty() && before["h1"].as_str() != Some(h1) {
+        out.push(h1.to_string());
+    }
+    let old = strs(&before["status"]);
+    for m in strs(&after["status"]) {
+        let loading = m.ends_with('…') || m.ends_with("...");
+        if !loading && !old.contains(&m) && !out.contains(&m) {
+            out.push(m);
+        }
+    }
+    out
+}
+
 /// The history as a `.pv` file with one scenario.
 pub fn render(history: &[Value], session: &str, scenario: &str) -> String {
     let first = history.iter().find_map(|e| match serde_json::from_value::<Command>(e["command"].clone()) {
@@ -275,6 +297,7 @@ pub fn render(history: &[Value], session: &str, scenario: &str) -> String {
     let mut steps = String::new();
     let mut secrets: Vec<String> = Vec::new();
     let mut at: Option<String> = None;
+    let mut said = &Value::Null;
     for e in history {
         let Ok(c) = serde_json::from_value::<Command>(e["command"].clone()) else {
             steps.push_str(&format!("  # (an action this primavera can't read: {})\n", e["command"]));
@@ -309,6 +332,22 @@ pub fn render(history: &[Value], session: &str, scenario: &str) -> String {
                 }
             }
             Err(why) => steps.push_str(&format!("  # left out: {why}\n")),
+        }
+        // What the page said after an action that a `goto` didn't start:
+        // a heading that changed, a message that appeared.
+        if !e["page"].is_null() {
+            if !matches!(c, Command::Goto { .. } | Command::Open { .. } | Command::TabNew { .. }) {
+                for text in proposals(said, &e["page"]) {
+                    // Numbers (an order id, a count) may differ next run.
+                    let line = format!("expect text {}", quote(&text));
+                    if text.chars().any(|c| c.is_ascii_digit()) {
+                        steps.push_str(&format!("  # {line}   (has numbers: may change between runs)\n"));
+                    } else {
+                        steps.push_str(&format!("  {line}\n"));
+                    }
+                }
+            }
+            said = &e["page"];
         }
         if url.is_some() {
             at = url;
@@ -376,7 +415,8 @@ mod tests {
             json!({"command": {"op": "fill", "label": "Password", "value": "hunter2"}, "url": "http://127.0.0.1:8000/login"}),
             json!({"command": {"op": "fill", "ref": 30, "value": "s3cret"}, "secret": true, "locators": role("textbox", "Token Gamma"), "url": "http://127.0.0.1:8000/login"}),
             json!({"command": {"op": "fill", "ref": 31, "value": "plain"}, "secret": false, "locators": role("textbox", "Password hint"), "url": "http://127.0.0.1:8000/login"}),
-            json!({"command": {"op": "click", "ref": 35}, "locators": role("button", "Sign in"), "url": "http://127.0.0.1:8000/account?tab=1"}),
+            json!({"command": {"op": "click", "ref": 35}, "locators": role("button", "Sign in"), "url": "http://127.0.0.1:8000/account?tab=1",
+                   "page": {"h1": "Your account", "status": ["Signed in", "3 new orders", "Loading…"]}}),
             json!({"command": {"op": "click", "ref": 50}, "locators": [], "url": "http://127.0.0.1:8000/account?tab=1"}),
             json!({"command": {"op": "mouse", "action": "click", "x": 10.0, "y": 20.0}, "url": "http://127.0.0.1:8000/account?tab=1"}),
             json!({"command": {"op": "goto", "url": "https://other.test/x"}, "url": "https://other.test/x"}),
@@ -387,7 +427,8 @@ mod tests {
                     click --role button --name \"Accept all\"\n  fill --role textbox --name Email ada@example.com\n  \
                     fill --label Password ${secret:PASSWORD}\n  fill --role textbox --name \"Token Gamma\" ${secret:TOKEN_GAMMA}\n  \
                     fill --role textbox --name \"Password hint\" plain\n  click --role button --name \"Sign in\"\n  \
-                    expect url ends-with /account?tab=1\n  # left out: ref 50: no locator found it again\n  \
+                    expect url ends-with /account?tab=1\n  expect text \"Your account\"\n  expect text \"Signed in\"\n  \
+                    # expect text \"3 new orders\"   (has numbers: may change between runs)\n  # left out: ref 50: no locator found it again\n  \
                     # left out: mouse click at coordinates (kept out: they move with the layout)\n  \
                     goto https://other.test/x\n  wait --timeout-ms 9000 --download *.csv\n";
         assert!(pv.ends_with(want), "{pv}");

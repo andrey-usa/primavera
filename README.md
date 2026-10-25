@@ -319,7 +319,9 @@ primavera --version
   left out), every ref replaced by the most stable locator that found its
   element again just before the action (test id, role and name, label, placeholder, text, CSS;
   navigera's `locate`, each checked on the page), `base` from the first
-  `goto`, an `expect url` where an action moved the page, and a value typed
+  `goto`, an `expect url` where an action moved the page, an `expect text`
+  for a heading that changed or a status/alert message that appeared (as a
+  comment when it has numbers, which may change), and a value typed
   into a password field (`type=password`, as navigera's `locate` says) as
   `${secret:NAME}`, named after the field (`${secret:PASSWORD}`,
   `${secret:CONFIRM_PASSWORD}`). What it can't keep (a mouse at
