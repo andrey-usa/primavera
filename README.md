@@ -226,6 +226,7 @@ primavera run [<file.pv|file.feature|dir>...] [--base-url <url>] [--var k=v] [--
 primavera lint [<file.pv|dir>...]
 primavera list [<file.pv|dir>...]
 primavera trace <dir> [<line>]
+primavera fix [<file>:<line>] [--use <n>] [--all [--min <p>]]
 ```
 
 - Every scenario starts in a fresh browser context (navigera `reset
@@ -285,6 +286,12 @@ primavera trace <dir> [<line>]
         nearest on the page:
           1. button "Accept all"   --role button --name "Accept all"   0.63
   ```
+- `primavera fix <file>:<line> [--use <n>]` puts the last run's n-th
+  "nearest on the page" into that step (only its locator flags change, and
+  only if the line still reads as it did); `primavera fix --all [--min
+  0.6]` takes each failure's first suggestion that scored that much, and
+  plain `primavera fix` lists them. The failure block prints the command.
+  A `.feature` step is left alone: change its `step` block instead.
 - `--pause-on-failure` stops at a failure with the browser as the failure
   left it and prints how to look at that very tab (`navigera -s pv start
   --attach ws://…/devtools/page/…`, then `navigera -s pv ax`); Enter goes

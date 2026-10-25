@@ -21,7 +21,7 @@ fn rel(p: &Path) -> String {
         .unwrap_or_else(|| p.display().to_string())
 }
 
-fn failure_lines(out: &mut String, f: &Failure, indent: &str) {
+fn failure_lines(out: &mut String, f: &Failure, indent: &str, file: &Path) {
     let _ = writeln!(out, "{indent}line {}: {}", f.line, f.text);
     for l in f.message.lines() {
         let _ = writeln!(out, "{indent}{l}");
@@ -35,6 +35,9 @@ fn failure_lines(out: &mut String, f: &Failure, indent: &str) {
         for (i, (shown, locator, score)) in f.nearest.iter().enumerate() {
             let pad = " ".repeat(width - shown.chars().count());
             let _ = writeln!(out, "{indent}  {}. {shown}{pad}   {locator}   {score:.2}", i + 1);
+        }
+        if file.extension().is_none_or(|e| e != "feature") {
+            let _ = writeln!(out, "{indent}fix: primavera fix {}:{} --use 1", rel(file), f.line);
         }
     }
     if let Some(h) = &f.hint {
@@ -59,10 +62,10 @@ pub fn console_line(r: &ScenarioResult) -> String {
     let tries = if r.attempt > 1 { format!(", try {}", r.attempt) } else { String::new() };
     let _ = writeln!(out, "{mark:<5} {}:{}  {}  ({}{tries})", rel(&r.file), r.line, r.name, secs(r.ms));
     if let Some(f) = &r.failure {
-        failure_lines(&mut out, f, "      ");
+        failure_lines(&mut out, f, "      ", &r.file);
     } else if let Some(f) = r.retried.first() {
         let _ = writeln!(out, "      failed first:");
-        failure_lines(&mut out, f, "        ");
+        failure_lines(&mut out, f, "        ", &r.file);
     }
     out
 }

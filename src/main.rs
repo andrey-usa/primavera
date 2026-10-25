@@ -5,6 +5,7 @@ mod allure;
 mod axtree;
 mod config;
 mod expect;
+mod fix;
 mod gherkin;
 mod http;
 mod nearest;
@@ -33,6 +34,8 @@ usage:
   primavera lint [<file.pv|dir>...]             check files without a browser
   primavera list [<file.pv|dir>...]             the scenarios a run would take
   primavera trace <dir> [<line>]                a recorded trace (--trace): every step, or one in full
+  primavera fix [<file>:<line>] [--use <n>] [--all [--min <p>]]
+                                                put a suggestion of the last run (nearest on the page) into the failing step
   primavera skill                               the agent skill (the format and commands, for an AI agent)
   primavera --version
 
@@ -334,6 +337,20 @@ fn load(paths: &[PathBuf]) -> Result<Vec<suite::Suite>, String> {
 }
 
 fn main() -> ExitCode {
+    // `fix` takes its own words.
+    if std::env::args().nth(1).as_deref() == Some("fix") {
+        let words: Vec<String> = std::env::args().skip(2).collect();
+        return match fix::main(&words) {
+            Ok(text) => {
+                print!("{text}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                ExitCode::from(2)
+            }
+        };
+    }
     let args = match parse_args() {
         Ok(a) => a,
         Err(msg) if msg == USAGE => {
@@ -568,6 +585,7 @@ fn run(args: Args) -> ExitCode {
         println!("{}", serde_json::Value::Object(saved));
     }
     Timings::save(&results);
+    fix::save(&results);
     if let Some(dir) = &args.allure {
         if let Err(e) = allure::write(&results, &suites, dir) {
             eprintln!("could not write Allure results to {}: {e}", dir.display());

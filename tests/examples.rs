@@ -442,6 +442,39 @@ fn a_download_is_compared_with_the_expected_file() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+#[test]
+fn fix_puts_a_suggestion_into_the_failing_step() {
+    let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
+    let dir = std::env::temp_dir().join(format!("pv-fix-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("t.pv"),
+        "scenario \"Signs in\"\n  goto /login\n  click --role button --name \"Sign on\" --timeout-ms 300\n",
+    )
+    .unwrap();
+    let pv = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_primavera")).args(args).current_dir(&dir).output().unwrap();
+        (
+            out.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr),
+        )
+    };
+    let (code, out) = pv(&["run", "t.pv", "--base-url", &site.1, "--evidence", "ev"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("fix: primavera fix t.pv:3 --use 1"), "{out}");
+    let (_, list) = pv(&["fix"]);
+    assert!(list.contains("t.pv:3") && list.contains("--role button --name \"Sign in\""), "{list}");
+    let (code, out) = pv(&["fix", "t.pv:3", "--use", "1"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("+ click --role button --name \"Sign in\" --timeout-ms 300"), "{out}");
+    let (code, out) = pv(&["run", "t.pv", "--base-url", &site.1, "--evidence", "ev"]);
+    assert_eq!(code, 0, "{out}");
+    // The run that passed left nothing to fix.
+    let (code, out) = pv(&["fix", "t.pv:3"]);
+    assert_eq!(code, 2, "{out}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// A GET to the fixture site, its body.
 fn fetch(site: &Site, path: &str) -> String {
     use std::io::{Read, Write};
