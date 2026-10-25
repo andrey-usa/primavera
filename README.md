@@ -318,6 +318,12 @@ primavera --version
         nearest on the page:
           1. button "Accept all"   --role button --name "Accept all"   0.63
   ```
+
+  When that list is unsure (the best under 0.6, or the first two within
+  0.1) and a decision model is set up for navigera (`TYPESAFE_API_KEY`, or
+  `NAVIGERA_DECIDER_URL`), primavera also asks it which element the step
+  meant (navigera's `find`, on the failing page) and puts its pick first,
+  marked `(decider)`; one call per such failure, none otherwise.
 - `primavera fix <file>:<line> [--use <n>]` puts the last run's n-th
   "nearest on the page" into that step (only its locator flags change, and
   only if the line still reads as it did); `primavera fix --all [--min

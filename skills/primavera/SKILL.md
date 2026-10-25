@@ -108,7 +108,9 @@ or the app server didn't start.
 - `primavera.toml` holds defaults, `[server]` (the app, started and
   stopped with the run) and `[env.<name>]` profiles.
 - After a failure: `primavera fix <file>:<line> --use 1` puts the nearest
-  element's locator in; `--trace on-failure` and `primavera trace <dir>`
+  element's locator in (with `TYPESAFE_API_KEY` or `NAVIGERA_DECIDER_URL`
+  set, an unsure list is topped by the decision model's pick, marked
+  `(decider)`); `--trace on-failure` and `primavera trace <dir>`
   show each step's page, console and requests.
 
 ## When it fails
