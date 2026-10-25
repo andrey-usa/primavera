@@ -265,6 +265,55 @@ fn feature_files_run_with_the_runs_steps_and_report_cucumber_json() {
     std::fs::remove_file(&report).ok();
 }
 
+#[test]
+fn a_config_starts_the_app_and_picks_a_profile() {
+    let Some(_turn) = chrome() else { return };
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let dir = std::env::temp_dir().join(format!("pv-config-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let py = if cfg!(windows) { "python" } else { "python3" };
+    let site = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/site.py").replace('\\', "/");
+    let config = format!(
+        "base_url = \"http://127.0.0.1:{port}\"\npaths = [\"t.pv\"]\n[vars]\ngreeting = \"from the file\"\n\
+         [server]\ncommand = \"{py} {site} --port {port}\"\nurl = \"http://127.0.0.1:{port}/login\"\nreuse = false\n\
+         [env.other.vars]\ngreeting = \"from other\"\n"
+    );
+    std::fs::write(dir.join("primavera.toml"), config).unwrap();
+    std::fs::write(
+        dir.join("t.pv"),
+        "scenario \"Config\"\n  goto /login\n  expect text \"Sign in\"\n  expect ${greeting} is ${want}\n",
+    )
+    .unwrap();
+    let bad = format!(
+        "[server]\ncommand = \"{py} -c \\\"print('boom'); raise SystemExit(4)\\\"\"\nurl = \"http://127.0.0.1:{port}/\"\n"
+    );
+    std::fs::write(dir.join("bad.toml"), bad).unwrap();
+    let run = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_primavera"))
+            .arg("run")
+            .args(args)
+            .current_dir(&dir)
+            .output()
+            .expect("run primavera");
+        let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+        (out.status.code().unwrap_or(-1), text)
+    };
+    let (code, out) = run(&["--var", "want=from the file"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("/login answers ("), "{out}");
+    let (code, out) = run(&["--env", "other", "--var", "want=from other"]);
+    assert_eq!(code, 0, "{out}");
+    // Stopped with the run.
+    assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_err(), "the server is still up");
+    let (code, out) = run(&["--config", "bad.toml", "t.pv"]);
+    assert_eq!(code, 3, "{out}");
+    assert!(out.contains("exited") && out.contains("boom"), "{out}");
+    let (code, out) = run(&["--env", "nope"]);
+    assert_eq!(code, 2, "{out}");
+    assert!(out.contains("no profile [env.nope] (there are: other)"), "{out}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// A GET to the fixture site, its body.
 fn fetch(site: &Site, path: &str) -> String {
     use std::io::{Read, Write};

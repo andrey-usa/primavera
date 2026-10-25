@@ -134,7 +134,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    port = int(sys.argv[sys.argv.index("--port") + 1]) if "--port" in sys.argv else 0
+    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"LISTENING http://127.0.0.1:{srv.server_address[1]}", flush=True)
     try:
         srv.serve_forever()

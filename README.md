@@ -206,7 +206,7 @@ primavera run [<file.pv|file.feature|dir>...] [--base-url <url>] [--var k=v] [--
               [--repeat <n>] [--shuffle [<seed>]]
               [--reporter console|jsonl|github] [--junit <file>] [--cucumber <file>] [--html <file>] [--json]
               [--timeout-ms <ms>] [--wait-ms <ms>] [--headed] [--chromium <path>]
-              [--secrets <file>] [--pause-on-failure]
+              [--secrets <file>] [--pause-on-failure] [--config <file>] [--env <name>]
 primavera lint [<file.pv|dir>...]
 primavera list [<file.pv|dir>...]
 ```
@@ -262,7 +262,43 @@ primavera list [<file.pv|dir>...]
   from elsewhere), and under CI (`CI` set) it doesn't pause unless that is
   set.
 - Exit codes: 0 passed, 1 a scenario failed, 2 a file or argument is wrong,
-  3 the browser didn't start.
+  3 the browser or the app server didn't start.
+
+## Config: `primavera.toml`
+
+A `primavera.toml` in the current directory (or `--config <file>`) holds
+what a run takes by default; flags on the command line win over it.
+Paths in it are from its own directory.
+
+```toml
+base_url = "http://127.0.0.1:3000"
+paths = ["tests"]            # what to run when the command line names nothing
+workers = 4                  # or "auto"
+retries = 1
+reporters = ["github"]       # added to --reporter
+junit = "reports/junit.xml"  # also html, cucumber, secrets, evidence, chromium
+[vars]                       # as --var; --var on the command line wins
+region = "us"
+
+[server]                     # the app under test
+command = "npm run dev"      # sh -c (cmd /C on Windows), in `cwd`
+url = "http://127.0.0.1:3000/health"
+timeout_s = 60
+# reuse = true               # one already answering at url is used (default, except under CI)
+# env = { PORT = "3000" }
+
+[env.staging]                # --env staging: on top of the rest
+base_url = "https://staging.example.com"
+[env.staging.vars]
+region = "eu"
+```
+
+The `[server]` starts before the browser and is ready when its `url`
+answers (any status under 500); its output goes to `.primavera/server.log`,
+and it is stopped with everything it started when the run ends. One that
+exits or doesn't answer in time ends the run with exit 3 and the end of its
+log. Other keys: `timeout_ms`, `wait_ms`, `isolation`, `fail_on_flaky`,
+`headed`; an unknown key is an error.
 
 ## Building
 

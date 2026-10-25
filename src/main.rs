@@ -2,12 +2,14 @@
 //! through navigera. See README.md.
 
 mod axtree;
+mod config;
 mod expect;
 mod gherkin;
 mod http;
 mod nearest;
 mod report;
 mod runner;
+mod server;
 mod suite;
 
 use std::collections::BTreeMap;
@@ -45,6 +47,8 @@ run options:
   --shuffle [<seed>]    run in a random order (the seed is printed; give it again to repeat the order)
   --reporter <name>     console (default), jsonl (one JSON object per scenario on stdout), github
                         (workflow annotations; on by itself under GitHub Actions); repeatable
+  --config <file>       settings, a [server] and [env.<name>] profiles (default: ./primavera.toml)
+  --env <name>          the config's [env.<name>] profile on top of the rest
   --junit <file>        also write JUnit XML
   --cucumber <file>     also write Cucumber JSON for the .feature files (step by step)
   --html <file>         also write the run as one HTML page (steps, times, failures with their screenshot)
@@ -56,7 +60,7 @@ run options:
   --evidence <dir>      failure screenshots and downloads (default .primavera/runs/<time>)
   --pause-on-failure    keep the browser at a failure, open to `navigera --attach`, until Enter (one worker)
 
-exit codes: 0 all passed, 1 a scenario failed, 2 a file or an argument is wrong, 3 the browser didn't start
+exit codes: 0 all passed, 1 a scenario failed, 2 a file or an argument is wrong, 3 the browser or the app server didn't start
 ";
 
 struct Args {
@@ -66,6 +70,8 @@ struct Args {
     junit: Option<PathBuf>,
     cucumber: Option<PathBuf>,
     html: Option<PathBuf>,
+    /// primavera.toml's `[server]`.
+    server: Option<config::Server>,
     workers: usize,
     retries: u32,
     fail_on_flaky: bool,
@@ -79,8 +85,30 @@ struct Args {
 }
 
 fn parse_args() -> Result<Args, String> {
-    let mut it = std::env::args().skip(1);
-    let cmd = it.next().ok_or_else(|| USAGE.to_string())?;
+    let mut raw: Vec<String> = std::env::args().skip(1).collect();
+    if raw.is_empty() {
+        return Err(USAGE.to_string());
+    }
+    let cmd = raw.remove(0);
+    // primavera.toml (or --config), and its --env profile: flags before the
+    // command line's, which win.
+    let mut take = |flag: &str| -> Result<Option<String>, String> {
+        match raw.iter().position(|w| w == flag) {
+            Some(i) if i + 1 < raw.len() => {
+                let v = raw.remove(i + 1);
+                raw.remove(i);
+                Ok(Some(v))
+            }
+            Some(_) => Err(format!("{flag} needs a value")),
+            None => Ok(None),
+        }
+    };
+    let config_file = take("--config")?;
+    let env = take("--env")?;
+    let config = config::load(config_file.as_deref().map(std::path::Path::new), env.as_deref())?;
+    let mut words = config.as_ref().map(|c| c.profile.words()).unwrap_or_default();
+    words.extend(raw);
+    let it = words.into_iter();
     let mut paths = Vec::new();
     let stamp =
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default();
@@ -208,6 +236,10 @@ fn parse_args() -> Result<Args, String> {
         opts.base = base_flag;
     }
     if paths.is_empty() {
+        let from_config = config.as_ref().and_then(|c| c.profile.paths.clone()).unwrap_or_default();
+        paths.extend(from_config.into_iter().map(PathBuf::from));
+    }
+    if paths.is_empty() {
         paths.push(PathBuf::from("."));
     }
     // Annotations alone say nothing about a passing run: the console stays
@@ -225,6 +257,7 @@ fn parse_args() -> Result<Args, String> {
         junit,
         cucumber,
         html,
+        server: config.and_then(|c| c.profile.server),
         workers,
         retries,
         fail_on_flaky,
@@ -363,6 +396,15 @@ fn run(args: Args) -> ExitCode {
             eprintln!("{e}");
             return ExitCode::from(2);
         }
+    };
+    // The app under test, up before the browser and down after the run.
+    let _server = match args.server.as_ref().map(server::start) {
+        Some(Err(e)) => {
+            eprintln!("{e}");
+            return ExitCode::from(3);
+        }
+        Some(Ok(running)) => Some(running),
+        None => None,
     };
     let mut opts = args.opts.clone();
     // The first file's `base` serves when the run names none.
