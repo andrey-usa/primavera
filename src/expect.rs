@@ -1,6 +1,6 @@
 //! `expect` lines: what to check, how to read it from the page, and how to
 //! compare. Every expectation is retried until it holds or its timeout
-//! runs out (see `runner`), like Playwright's web-first assertions.
+//! runs out (see `runner`): an assertion waits for the page instead of failing at once.
 //!
 //! ```text
 //! expect url ends-with /cart
