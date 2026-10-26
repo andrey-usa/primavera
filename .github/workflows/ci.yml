@@ -132,7 +132,7 @@ jobs:
           mkdir -p t
           printf 'scenario "The shop opens"\n  goto /\n  expect url ends-with /shop\n  expect title contains Acme\n  expect lcp < 10s\n  expect no errors\n' > t/shop.pv
       - id: pv
-        uses: $/primavera
+        uses: ./primavera
         with:
           paths: t
           base-url: http://127.0.0.1:18001
