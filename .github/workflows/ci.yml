@@ -13,7 +13,7 @@ on:
     inputs:
       navigera:
         description: "navigera branch or commit to build against"
-        default: "session-history"
+        default: "master"
 
 permissions:
   contents: read
@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NAVIGERA_REF: ${{ inputs.navigera || 'session-history' }}
+  NAVIGERA_REF: ${{ inputs.navigera || 'master' }}
 
 jobs:
   test:

@@ -116,6 +116,9 @@ fn parse_args() -> Result<Args, String> {
         return Err(USAGE.to_string());
     }
     let cmd = raw.remove(0);
+    if matches!(cmd.as_str(), "help" | "--help" | "-h") {
+        return Err(USAGE.to_string());
+    }
     // primavera.toml (or --config), and its --env profile: flags before the
     // command line's, which win.
     let mut take = |flag: &str| -> Result<Option<String>, String> {

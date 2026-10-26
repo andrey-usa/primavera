@@ -139,7 +139,7 @@ Status: pre-release. Everything below works in this build.
   `download`) has `*` for any run of characters and matches the whole URL
   or file name:
 
-| expect | |
+| expect | Checks |
 |---|---|
 | `url`/`title` `is` (or `==`), `contains`, `starts-with`, `ends-with`, `matches` `<value>` | the active tab |
 | `text "<t>"`, `no text "<t>"` [`--within <target>`] | visible text, frames included, or inside an element |
@@ -486,11 +486,12 @@ and evidence in `/work/out`, a memory-backed `/dev/shm`.
 
 ## Building
 
-primavera links navigera as a library, checked out beside it:
+primavera links navigera as a library, checked out beside it at the
+branch primavera's CI builds against (`master`, as of navigera 0.6.1):
 
 ```text
 work/
-  navigera/     github.com/andrey-usa/navigera (or navigera-private)
+  navigera/     git clone https://github.com/andrey-usa/navigera (master)
   primavera/    this repository
 ```
 
