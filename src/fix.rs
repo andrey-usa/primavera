@@ -53,10 +53,11 @@ pub fn quote(w: &str) -> String {
     if !w.is_empty() && !w.chars().any(|c| c.is_whitespace() || "'\"\\".contains(c)) {
         return w.to_string();
     }
-    if w.contains('"') && !w.contains('\'') {
+    let breaks = w.contains(['\n', '\r']);
+    if w.contains('"') && !w.contains('\'') && !breaks {
         return format!("'{w}'");
     }
-    format!("\"{}\"", w.replace('\\', "\\\\").replace('"', "\\\""))
+    format!("\"{}\"", w.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "\\r"))
 }
 
 /// The step `line` with its locator flags replaced by `locator`'s.
@@ -242,7 +243,9 @@ mod tests {
         );
         assert!(rewrite("  goto /cart", "--text x").is_err());
         // What it writes reads back as the same words.
-        for w in ["a b", "say \"hi\"", "it's \"x\"", "back\\slash", "", "plain"] {
+        for w in
+            ["a b", "say \"hi\"", "it's \"x\"", "back\\slash", "", "plain", "two\nlines", "say \"hi\"\r\nthen", "a\\nb"]
+        {
             assert_eq!(tokenize(&quote(w)).unwrap(), [w], "{w:?} as {}", quote(w));
         }
     }

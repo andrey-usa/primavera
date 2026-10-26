@@ -268,6 +268,10 @@ pub fn tokenize(line: &str) -> Result<Vec<String>, String> {
                         Some('"') => break,
                         Some('\\') => match chars.next() {
                             Some(ch @ ('"' | '\\')) => cur.push(ch),
+                            // A line break in a value (a textarea's):
+                            // the same in a pattern.
+                            Some('n') => cur.push('\n'),
+                            Some('r') => cur.push('\r'),
                             // `\$` stays escaped for interpolation to see.
                             Some('$') => cur.push_str("$$"),
                             Some(ch) => {

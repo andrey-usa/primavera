@@ -48,7 +48,9 @@ Status: pre-release. Everything below works in this build.
   file, as `use` and `for each` files are, so a suite runs the same from
   any directory. Files a step writes (`screenshot`, `state save`) land in
   the current directory.
-- Words split like a shell's, with no expansion. `${NAME}` and
+- Words split like a shell's, with no expansion; inside double quotes
+  `\"` and `\\` stand for themselves and `\n`, `\r` for a line break
+  (a textarea's value). `${NAME}` and
   `${NAME:-default}` come from `save`, a flow's arguments, the data row,
   `before all`, `--var`, `set`, then the environment; `$$` (or `\$`) is a
   literal `$`, and quotes don't stop `${…}` (`'${x}'` is filled in too). Also `${run.id}` (one per run: unique
@@ -393,7 +395,11 @@ primavera --version
   those tools did, as a scenario; `out` writes it), `primavera_run`,
   `primavera_list`, `primavera_lint`, `primavera_failure` (the last run's
   failures with the nearest elements) and `primavera_fix`. Register it as
-  `{"command": "primavera", "args": ["mcp"]}`.
+  `{"command": "primavera", "args": ["mcp"]}`. What the tools run, read
+  and write (`paths`, `out`, the files `args` names) stays inside the
+  working directory, as navigera's own tools' files do, and `args` can't
+  name a `--chromium` to start; `NAVIGERA_MCP_ALLOW_FILES=1` lifts both.
+  A project's own `.pv` files still do what they say (`exec`, `[server]`).
 - `--pause-on-failure` stops at a failure with the browser as the failure
   left it and prints how to look at that very tab (`navigera -s pv start
   --attach ws://…/devtools/page/…`, then `navigera -s pv ax`); Enter goes

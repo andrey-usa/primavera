@@ -99,6 +99,60 @@ fn primavera(words: &[String]) -> Value {
     text_result(format!("{text}\nexit {code}"), code != 0)
 }
 
+/// `primavera run` options whose value is a file or directory.
+const PATH_OPTIONS: &[&str] = &["--secrets", "--config", "--junit", "--cucumber", "--allure", "--html", "--evidence"];
+
+/// The other `primavera run` options that take a value (any other word is
+/// a file to run, held to the working directory like `paths`).
+const VALUE_OPTIONS: &[&str] = &[
+    "--base-url",
+    "--var",
+    "--grep",
+    "--tag",
+    "--workers",
+    "-j",
+    "--isolation",
+    "--retries",
+    "--shard",
+    "--repeat",
+    "--reporter",
+    "--env",
+    "--compare-report",
+    "--trace",
+    "--timeout-ms",
+    "--wait-ms",
+    "--engine",
+];
+
+/// An MCP client may have no shell of its own, and these tools are not its
+/// way to the disk either: what they run, read and write stays inside the
+/// working directory (navigera's limit for its tools, lifted the same way),
+/// and `--chromium` (a program to start) is refused. What the project's own
+/// `.pv` files do (`exec`, `[server]`) is theirs to do.
+fn refused(files: &[String], args: &[String]) -> Option<String> {
+    if nv::files_allowed() {
+        return None;
+    }
+    if let Some(a) = args.iter().find(|a| *a == "--chromium" || a.starts_with("--chromium=")) {
+        return Some(format!("{a}: not over MCP (start `primavera mcp --chromium <path>` instead)"));
+    }
+    let mut named = files.to_vec();
+    for (i, a) in args.iter().enumerate() {
+        let before = i.checked_sub(1).map(|j| args[j].as_str());
+        match a.split_once('=') {
+            Some((k, v)) if PATH_OPTIONS.contains(&k) => named.push(v.to_string()),
+            _ if a.starts_with('-') => {}
+            _ if before.is_some_and(|b| PATH_OPTIONS.contains(&b)) => named.push(a.clone()),
+            _ if before.is_some_and(|b| VALUE_OPTIONS.contains(&b)) => {}
+            _ => named.push(a.clone()),
+        }
+    }
+    named
+        .iter()
+        .find(|n| !nv::in_working_dir(n))
+        .map(|n| format!("{n} is outside the working directory (set NAVIGERA_MCP_ALLOW_FILES=1 to allow)"))
+}
+
 fn strings(v: &Value) -> Vec<String> {
     v.as_array().into_iter().flatten().filter_map(|s| s.as_str().map(String::from)).collect()
 }
@@ -120,6 +174,9 @@ fn call(browser: &mut Server, name: &str, a: &Value) -> Value {
             };
             let scenario = s("scenario").map_or_else(|| "What the browser did".to_string(), String::from);
             let pv = crate::from_session::render(&history, &label, &scenario);
+            if let Some(why) = s("out").and_then(|o| refused(&[o.to_string()], &[])) {
+                return text_result(why, true);
+            }
             match s("out") {
                 Some(path) => match std::fs::write(path, &pv) {
                     Ok(()) => text_result(format!("wrote {path}:\n\n{pv}"), false),
@@ -129,6 +186,9 @@ fn call(browser: &mut Server, name: &str, a: &Value) -> Value {
             }
         }
         "primavera_run" => {
+            if let Some(why) = refused(&strings(&a["paths"]), &strings(&a["args"])) {
+                return text_result(why, true);
+            }
             let mut w = vec!["run".to_string()];
             w.extend(strings(&a["paths"]));
             if let Some(b) = s("base_url") {
@@ -141,6 +201,9 @@ fn call(browser: &mut Server, name: &str, a: &Value) -> Value {
             primavera(&w)
         }
         "primavera_list" | "primavera_lint" => {
+            if let Some(why) = refused(&strings(&a["paths"]), &[]) {
+                return text_result(why, true);
+            }
             let mut w = vec![name.trim_start_matches("primavera_").to_string()];
             w.extend(strings(&a["paths"]));
             primavera(&w)
@@ -249,5 +312,33 @@ mod tests {
         assert_eq!(lines[0]["result"]["serverInfo"]["name"], "primavera");
         assert_eq!(lines[0]["result"]["protocolVersion"], "2025-06-18");
         assert!(lines[1]["result"]["tools"].as_array().unwrap().len() > 10);
+    }
+
+    #[test]
+    fn what_the_tools_run_read_and_write_stays_in_the_working_directory() {
+        let w = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let far = std::env::temp_dir().join("pv-mcp-elsewhere.pv").display().to_string();
+        for (files, args) in [
+            (w(&[&far]), w(&[])),
+            (w(&["../x.pv"]), w(&[])),
+            (w(&[]), w(&[&far])),
+            (w(&[]), w(&["--json", &far])),
+            (w(&[]), w(&["--secrets", "/etc/hostname"])),
+            (w(&[]), w(&[&format!("--html={far}")])),
+            (w(&[]), w(&["--chromium", "./x"])),
+        ] {
+            assert!(refused(&files, &args).is_some(), "{files:?} {args:?}");
+        }
+        for (files, args) in [
+            (w(&["tests", "a.pv"]), w(&["--retries", "1", "--grep", "/etc/x", "--shuffle", "42"])),
+            (w(&[]), w(&["--junit", "target/j.xml", "--evidence", "target/ev"])),
+        ] {
+            assert!(refused(&files, &args).is_none(), "{files:?} {args:?}");
+        }
+        let config = SessionConfig::default();
+        let mut browser = Server::new(&config);
+        let r = call(&mut browser, "primavera_from_session", &json!({"out": far}));
+        assert_eq!(r["isError"], true, "{r}");
+        assert!(!std::path::Path::new(&far).exists());
     }
 }
