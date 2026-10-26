@@ -345,6 +345,9 @@ primavera --version
   only if the line still reads as it did); `primavera fix --all [--min
   0.6]` takes each failure's first suggestion that scored that much, and
   plain `primavera fix` lists them. The failure block prints the command.
+  A click that something else covers (a consent bar, a modal) gets that
+  thing's buttons instead, "Accept", "Close", "Got it" … first, as an
+  `optional click` that `fix` puts before the step.
   A `.feature` step is left alone: change its `step` block instead.
 - `primavera navigera …` is navigera itself, built in: explore a page the
   way an agent does (`primavera navigera -s work start`, `goto`, `ax`,
@@ -368,8 +371,10 @@ primavera --version
 - `primavera record <url> --out t.pv` opens a browser to use by hand: each
   click, field change, check, select, upload and Enter becomes a step as
   you do it, with the most stable locator that finds the element (the same
-  `locate` as `from-session`, run in the page at that moment, so a click
-  that navigates away is still known), an `expect url` where the page
+  `locate` as `from-session`, run in the page at that moment; when the
+  click takes its element or the page away before that check is done, a
+  banner's Accept or a link, the element's own text or label read as it
+  was clicked), an `expect url` where the page
   moved, a password field's value as `${secret:NAME}` (never written
   down). The file is rewritten after
   every step: close the browser or press Ctrl-C to stop. A click into a

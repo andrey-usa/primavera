@@ -24,16 +24,44 @@ fn recorder() -> String {
   if (window.__pvRecorder) return;
   window.__pvRecorder = true;
   const locate = {locate};
+  const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  // Locators read at once, unchecked, for when `locate` can't finish: the
+  // step takes its element off the page (a banner's Accept) or the page
+  // away (a link) first.
+  const quick = (el, op) => {{
+    if (window !== window.top) return [];
+    if (op === 'click') {{
+      const t = norm(el.getAttribute('aria-label') || el.innerText || el.value || el.title);
+      if (t && t.length <= 60) return [{{ kind: 'text', flags: ['--text', t] }}];
+    }} else {{
+      const l = norm((el.labels && el.labels[0] && el.labels[0].innerText) || el.getAttribute('aria-label'));
+      if (l && l.length <= 80) return [{{ kind: 'label', flags: ['--label', l] }}];
+      const p = norm(el.getAttribute('placeholder'));
+      if (p) return [{{ kind: 'placeholder', flags: ['--placeholder', p] }}];
+    }}
+    return el.id && document.querySelectorAll('#' + CSS.escape(el.id)).length === 1
+      ? [{{ kind: 'css', flags: ['--selector', '#' + CSS.escape(el.id)] }}] : [];
+  }};
+  const secret = (el) => el.tagName === 'INPUT'
+    && (el.type === 'password' || /(current|new)-password|one-time-code/.test(el.getAttribute('autocomplete') || ''));
+  const doc = Math.random().toString(36).slice(2);
   let seq = 0;
+  // Each step is said twice: at once with `quick`'s locators (`early`),
+  // then with `locate`'s; primavera keeps the second when it comes.
   const note = (el, step) => {{
-    const n = ++seq, at = Date.now(), url = location.href;
+    const n = ++seq, id = doc + '.' + n, at = Date.now(), url = location.href;
+    const early = quick(el, step.op);
+    const say = (s, more) => console.debug({mark} + JSON.stringify({{ ...s, n, id, at, url, ...more }}));
+    // A password field's value stays out of the console and the file.
+    const hide = (s) => ({{ ...s, value: '', secret: true }});
+    const s0 = secret(el) ? hide(step) : step;
+    say(s0, {{ locators: early, early: true }});
     locate(el).then((r) => {{
-      // A password field's value stays out of the console and the file.
-      const s = {{ ...step }};
-      if (r.secret) {{ s.value = ''; s.secret = true; }}
-      console.debug({mark} + JSON.stringify({{ ...s, n, at, url, locators: r.locators || [], xframe: !!r.xframe }}));
-    }},
-      () => console.debug({mark} + JSON.stringify({{ ...step, n, at, url, locators: [] }})));
+      const s = r.secret ? hide(step) : s0;
+      const found = r.locators || [];
+      // Gone before it was checked: what it said is what finds it.
+      say(s, {{ locators: found.length || el.isConnected ? found : early, xframe: !!r.xframe }});
+    }}, () => say(s0, {{ locators: el.isConnected ? [] : early }}));
   }};
   const target = (e) => {{ let el = e.composedPath ? e.composedPath()[0] : e.target; return el && el.nodeType === 1 ? el : el && el.parentElement; }};
   const FIELD = 'input:not([type=button]):not([type=submit]):not([type=reset]):not([type=image]),textarea,select,option,[contenteditable]';
@@ -71,7 +99,18 @@ fn recorder() -> String {
 /// The notes as history entries (`from-session`'s input): in the order
 /// they happened, a field filled twice in a row once, each entry's `url`
 /// where the page was after it (the next note's, or `now` for the last).
-pub fn history(start: &str, mut notes: Vec<Value>, now: &str) -> Vec<Value> {
+pub fn history(start: &str, said: Vec<Value>, now: &str) -> Vec<Value> {
+    // A step said twice (`early`, then checked): the second, unless it
+    // found nothing the first did.
+    let mut notes: Vec<Value> = Vec::new();
+    for n in said {
+        match notes.iter().position(|m| n["id"].is_string() && m["id"] == n["id"]) {
+            Some(i) if n["locators"].as_array().is_some_and(Vec::is_empty) && notes[i]["locators"] != n["locators"] => {
+            }
+            Some(i) => notes[i] = n,
+            None => notes.push(n),
+        }
+    }
     notes.sort_by_key(|n| (n["at"].as_u64().unwrap_or(0), n["n"].as_u64().unwrap_or(0)));
     let same = |a: &Value, b: &Value| a["op"] == "fill" && b["op"] == "fill" && a["locators"] == b["locators"];
     let mut kept: Vec<Value> = Vec::new();
@@ -109,7 +148,9 @@ fn look(driver: &mut Driver, notes: &mut Vec<Value>, here: &mut String) -> Optio
     for m in console.as_array().into_iter().flatten() {
         if let Some(json) = m["text"].as_str().and_then(|t| t.strip_prefix(MARK)) {
             if let Ok(n) = serde_json::from_str::<Value>(json) {
-                eprintln!("  {} {}", n["op"].as_str().unwrap_or(""), n["locators"][0]["flags"]);
+                if n["early"] != true {
+                    eprintln!("  {} {}", n["op"].as_str().unwrap_or(""), n["locators"][0]["flags"]);
+                }
                 notes.push(n);
             }
         }
@@ -329,5 +370,29 @@ mod tests {
             "{pv}"
         );
         assert!(recorder().contains("const locate = async function (el"), "the page gets navigera's locate");
+    }
+
+    #[test]
+    fn a_step_said_early_then_checked_is_one_step() {
+        let role = json!([{"kind": "role", "flags": ["--role", "button", "--name", "Accept"]}]);
+        let text = json!([{"kind": "text", "flags": ["--text", "Accept"]}]);
+        let note = |id: &str, n: u64, early: bool, locators: &Value| json!({"op": "click", "id": id, "n": n, "at": n * 10, "url": "http://x/", "early": early, "locators": locators});
+        let notes = vec![
+            note("a.1", 1, true, &text),
+            note("a.2", 2, true, &json!([{"kind": "text", "flags": ["--text", "Buy now"]}])),
+            // Checked: found it.
+            note("a.1", 1, false, &role),
+            // Checked after it was gone: the early one stays.
+            note("a.2", 2, false, &json!([])),
+        ];
+        let pv = crate::from_session::render(&history("http://x/", notes, "http://x/"), "recorded", "Buys");
+        assert!(pv.ends_with("  goto /\n  click --role button --name Accept\n  click --text \"Buy now\"\n"), "{pv}");
+        // A page that went away before the check: the early one is the step.
+        let pv = crate::from_session::render(
+            &history("http://x/", vec![note("b.1", 1, true, &text)], "http://x/"),
+            "r",
+            "s",
+        );
+        assert!(pv.ends_with("  click --text Accept\n"), "{pv}");
     }
 }

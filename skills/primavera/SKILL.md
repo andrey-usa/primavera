@@ -112,7 +112,8 @@ or the app server didn't start.
 - After a failure: `primavera fix <file>:<line> --use 1` puts the nearest
   element's locator in (with `TYPESAFE_API_KEY` or `NAVIGERA_DECIDER_URL`
   set, an unsure list is topped by the decision model's pick, marked
-  `(decider)`); `--trace on-failure` and `primavera trace <dir>`
+  `(decider)`; a covered click gets an `optional click` on what covers
+  it, put before the step); `--trace on-failure` and `primavera trace <dir>`
   show each step's page, console and requests.
 
 ## When it fails

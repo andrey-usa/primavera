@@ -516,7 +516,13 @@ impl Runner {
         // A step of a flow failed: what comes closest is to its element.
         let inner = scope.inner.clone();
         let action = inner.as_ref().map_or(&step.action, |(_, s)| &s.action);
-        let nearest = if message.contains("no element") { self.nearest(action, scope) } else { Vec::new() };
+        let nearest = if message.contains("no element") {
+            self.nearest(action, scope)
+        } else if message.contains("is covered by") {
+            self.uncover(&message)
+        } else {
+            Vec::new()
+        };
         let source = inner.map(|(file, s)| (file, s.line, s.text));
         Failure {
             line: step.line,
@@ -567,6 +573,25 @@ impl Runner {
             }
         }
         ranked
+    }
+
+    /// A click under something else (a consent bar, a modal): what in it a
+    /// user would click to get it out of the way, as an `optional click`
+    /// for `fix` to put before the step (`fix::BEFORE`).
+    fn uncover(&mut self, message: &str) -> Vec<(String, String, f64)> {
+        let Some((_, rest)) = message.split_once("covered by ") else { return Vec::new() };
+        let cover = rest.split_once(" at its centre").map_or(rest, |(c, _)| c);
+        let js = format!("({UNCOVER_JS})({})", serde_json::json!(cover.split(' ').next().unwrap_or("")));
+        let Ok(Value::Array(found)) = self.command(&["eval".into(), js]) else { return Vec::new() };
+        found
+            .iter()
+            .filter_map(|f| {
+                let (role, name) = (f["role"].as_str()?, f["name"].as_str()?);
+                let step = format!("optional click --role {role} --name {}", crate::fix::quote(name));
+                let element = format!("{role} {} (on {cover})", serde_json::json!(name));
+                Some((element, format!("{}{step}", crate::fix::BEFORE), f["p"].as_f64().unwrap_or(0.5)))
+            })
+            .collect()
     }
 
     /// The decision model's pick for what a step wanted: the element (marked
@@ -1510,6 +1535,31 @@ const AXE: &str = include_str!("../vendor/axe-core/axe.min.js");
 /// `expect lcp|fcp|ttfb|load|cls`: what the browser measured for the
 /// current document (ms from its navigation start; `cls`: the largest
 /// session window of layout shifts not caused by input), or null.
+/// What to click in the element a click hit instead of its own (by
+/// navigera's description's selector): the buttons and links of the
+/// fixed or sticky box around it, else of an open dialog; the ones that
+/// say "Accept", "Close", "Got it" … first.
+const UNCOVER_JS: &str = r#"(sel) => {
+  let hit = null;
+  try { hit = document.querySelector(sel); } catch (_) {}
+  if (!hit) return [];
+  const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const shown = (e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && getComputedStyle(e).visibility !== 'hidden'; };
+  let top = hit;
+  for (let p = hit; p && p !== document.body; p = p.parentElement) if (/fixed|sticky/.test(getComputedStyle(p).position)) top = p;
+  const CLICKY = 'button,[role=button],a[href],input[type=button],input[type=submit]';
+  let els = [...(top.matches(CLICKY) ? [top] : []), ...top.querySelectorAll(CLICKY)].filter(shown);
+  // A backdrop holds nothing: the dialog beside it does.
+  if (!els.length) els = [...document.querySelectorAll('dialog[open],[role=dialog],[role=alertdialog],[aria-modal=true]')]
+    .flatMap((d) => [...d.querySelectorAll(CLICKY)]).filter(shown);
+  const AWAY = /^(accept( all)?|(i )?agree|allow( all)?|ok(ay)?|got it|close|dismiss|continue|no,? thanks|reject( all)?|decline|skip|later|not now|×|✕|x)$/i;
+  const seen = new Set();
+  return els.map((e) => ({ role: e.tagName === 'A' ? 'link' : 'button', name: norm(e.getAttribute('aria-label') || e.innerText || e.value || e.title) }))
+    .filter((c) => c.name && c.name.length <= 60 && !seen.has(c.name) && seen.add(c.name))
+    .map((c) => ({ ...c, p: AWAY.test(c.name) ? 0.9 : 0.5 }))
+    .sort((a, b) => b.p - a.p).slice(0, 3);
+}"#;
+
 const METRIC_JS: &str = r#"async (name) => {
   const nav = performance.getEntriesByType('navigation')[0];
   const seen = (type) => new Promise((done) => {

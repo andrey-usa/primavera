@@ -56,6 +56,21 @@ if (auto) setTimeout(() => {
 </script>
 """
 
+# `/bar`: a consent bar over the Buy button; its Accept takes it off the
+# page (`?auto=1`: Accept, then Buy, for `primavera record`).
+BAR = """
+<h1>Shop</h1>
+<button onclick="document.body.append('Bought')" style="margin-top:80vh">Buy now</button>
+<div id=bar style="position:fixed;left:0;right:0;bottom:0;height:40vh;background:#eee">Cookies
+  <button onclick="bar.remove()">Accept</button></div>
+<script>
+if (new URLSearchParams(location.search).get('auto')) setTimeout(() => {
+  bar.querySelector('button').click();
+  setTimeout(() => document.querySelector('button').click(), 100);
+}, 300);
+</script>
+"""
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -114,6 +129,8 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         if u.path == "/form":
             return self.page(FORM)
+        if u.path == "/bar":
+            return self.page(BAR)
         if u.path == "/done":
             return self.page("<h1>Thanks</h1>")
         if u.path == "/framed":

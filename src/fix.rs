@@ -14,6 +14,10 @@ use crate::suite::tokenize;
 
 const LAST_RUN: &str = ".primavera/last-run.json";
 
+/// A suggestion that is a step to put before the failing one (an
+/// `optional click` on what covers its element), not a locator.
+pub const BEFORE: &str = "before: ";
+
 /// The flags that say which element a step acts on (`--frame` stays: it
 /// says where to look, not what).
 const LOCATOR: &[&str] =
@@ -150,6 +154,14 @@ fn apply(f: &Failure, n: usize) -> Result<String, String> {
         ));
     }
     let cr = if old.ends_with('\r') { "\r" } else { "" };
+    if let Some(step) = locator.strip_prefix(BEFORE) {
+        let indent = &old[..old.len() - old.trim_start().len()];
+        let new = format!("{indent}{step}{cr}");
+        let said = format!("{}:{}\n  + {}\n    {}\n", shown(&f.file), f.line, new.trim(), old.trim());
+        lines.insert(f.line - 1, &new);
+        std::fs::write(&f.file, lines.join("\n")).map_err(|e| format!("{}: {e}", f.file.display()))?;
+        return Ok(said);
+    }
     let new = rewrite(old.trim_end_matches('\r'), locator)? + cr;
     let said = format!("{}:{}\n  - {}\n  + {}\n", shown(&f.file), f.line, old.trim(), new.trim());
     lines[f.line - 1] = &new;

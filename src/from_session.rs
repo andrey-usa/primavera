@@ -37,8 +37,10 @@ fn origin(url: &str) -> Option<&str> {
 /// The flags of a target as written, or a ref's most stable locator.
 fn flags(t: &TargetArgs, locators: &Value) -> Result<Vec<String>, String> {
     if let Some(r) = t.node_ref {
+        // (A recording's steps have no ref: 0.)
+        let who = if r == 0 { "the element".to_string() } else { format!("ref {r}") };
         let best =
-            locators.get(0).and_then(|l| l["flags"].as_array()).ok_or(format!("ref {r}: no locator found it again"))?;
+            locators.get(0).and_then(|l| l["flags"].as_array()).ok_or(format!("{who}: no locator found it again"))?;
         return Ok(best.iter().filter_map(|f| f.as_str().map(String::from)).collect());
     }
     if let Some(f) = &t.find {

@@ -560,11 +560,54 @@ fn a_recording_becomes_a_scenario_that_passes() {
                 check --role checkbox --name \"Gift wrap\"\n  click --selector \"#tip >>> button\"\n  \
                 select --role combobox --name Size Large\n  \
                 click --role link --name \"Place order\"\n  expect url ends-with /done\n";
-    assert!(pv.ends_with(want), "{pv}");
+    assert!(
+        pv.ends_with(want),
+        "recorded:\n{pv}\nwanted it to end with:\n{want}\nstderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     // Run without the page using itself: the steps do it.
     std::fs::write(&file, pv.replace("?auto=1", "")).unwrap();
     let (code, text) = primavera(&["run", file.to_str().unwrap(), "--base-url", &site.1]);
     assert_eq!(code, 0, "{pv}\n{text}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_click_that_takes_its_element_away_is_recorded_and_a_covered_click_is_fixed() {
+    let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
+    let dir = std::env::temp_dir().join(format!("pv-bar-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("buy.pv");
+    let out = Command::new(env!("CARGO_BIN_EXE_primavera"))
+        .args(["record", &format!("{}/bar?auto=1", site.1), "--headless", "--for", "3"])
+        .args(["--scenario", "Buys", "--out", file.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let pv = std::fs::read_to_string(&file).unwrap();
+    // Accept was gone before `locate` could check it: its text finds it.
+    assert!(pv.contains("  click --text Accept\n  click --role button --name \"Buy now\"\n"), "{pv}");
+    std::fs::write(&file, pv.replace("?auto=1", "")).unwrap();
+    let (code, text) = primavera(&["run", file.to_str().unwrap(), "--base-url", &site.1]);
+    assert_eq!(code, 0, "{pv}\n{text}");
+    // Without the Accept click, Buy is covered: `fix` puts it back as an
+    // optional click before the step.
+    std::fs::write(&file, "scenario \"Buys\"\n  goto /bar\n  click --role button --name \"Buy now\" --timeout-ms 500\n  expect text Bought\n").unwrap();
+    let run =
+        |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_primavera")).args(args).current_dir(&dir).output().unwrap();
+    let out = run(&["run", "buy.pv", "--base-url", &site.1]);
+    assert!(!out.status.success());
+    let list = String::from_utf8_lossy(&run(&["fix"]).stdout).to_string();
+    assert!(list.contains("before: optional click --role button --name Accept   0.90"), "{list}");
+    let out = run(&["fix", "--all"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let fixed = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        fixed.contains("  goto /bar\n  optional click --role button --name Accept\n  click --role button"),
+        "{fixed}"
+    );
+    let out = run(&["run", "buy.pv", "--base-url", &site.1]);
+    assert!(out.status.success(), "{fixed}\n{}", String::from_utf8_lossy(&out.stdout));
     std::fs::remove_dir_all(&dir).ok();
 }
 
