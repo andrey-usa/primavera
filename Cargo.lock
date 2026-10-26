@@ -329,6 +329,7 @@ dependencies = [
  "anyhow",
  "base64",
  "futures-util",
+ "miniz_oxide 0.9.1",
  "serde",
  "serde_json",
  "tempfile",
