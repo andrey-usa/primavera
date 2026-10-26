@@ -86,6 +86,16 @@ fn quote(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"").replace('$', "\\$"))
 }
 
+/// The named elements of `ax`'s text tree (`- button "Pay" [ref=12]`),
+/// frames included, which the flat JSON list leaves out; as `rank` reads them.
+pub fn from_tree(text: &str) -> Vec<Value> {
+    let line = regex::Regex::new(r#"^\s*- ([a-z]+) "((?:[^"\\]|\\.)*)""#).expect("a valid pattern");
+    text.lines()
+        .filter_map(|l| line.captures(l))
+        .map(|c| serde_json::json!({"role": &c[1], "name": c[2].replace("\\\"", "\"").replace("\\\\", "\\")}))
+        .collect()
+}
+
 /// Up to `n` candidates: (`role "name"`, a locator for it, score).
 pub fn rank(ax: &Value, want: &Wanted, n: usize) -> Vec<(String, String, f64)> {
     let mut out: Vec<(String, String, f64)> = Vec::new();
@@ -146,5 +156,11 @@ mod tests {
         assert_eq!(rank(&ax, &want, 3)[0].1, "--role link --name \"Continue shopping\"");
         assert_eq!(wanted(&["--selector".into(), "#x".into()]), None);
         assert_eq!(quote("Pay $5 \"now\""), "\"Pay \\$5 \\\"now\\\"\"");
+        // A button inside a frame comes from the text tree.
+        let tree = "page \"\" x\n- button \"Outer\" [ref=7]\n- Iframe:\n  - document [ref=3]:\n    - button \"Subscibe \\\"now\\\"\" [ref=13]\n";
+        let nodes = from_tree(tree);
+        assert_eq!(nodes[1], serde_json::json!({"role": "button", "name": "Subscibe \"now\""}));
+        let want = wanted(&["--role".into(), "button".into(), "--name".into(), "Subscribe \"now\"".into()]).unwrap();
+        assert_eq!(rank(&Value::Array(nodes), &want, 3)[0].0, "button \"Subscibe \\\"now\\\"\"");
     }
 }

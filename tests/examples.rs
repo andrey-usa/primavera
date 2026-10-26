@@ -645,6 +645,33 @@ fn an_unsure_failure_asks_the_decision_model_when_there_is_one() {
 }
 
 #[test]
+fn a_missing_element_in_a_frame_gets_suggestions_from_the_frame() {
+    let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
+    let dir = std::env::temp_dir().join(format!("pv-framed-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("t.pv"),
+        "scenario \"Framed\"\n  goto /framed\n  click --role button --name Subscribe --frame iframe --timeout-ms 300\n",
+    )
+    .unwrap();
+    let pv = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_primavera")).args(args).current_dir(&dir).output().unwrap();
+        (
+            out.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr),
+        )
+    };
+    let (code, out) = pv(&["run", "t.pv", "--base-url", &site.1, "--evidence", "ev"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("1. button \"Subscibe\""), "{out}");
+    let (code, out) = pv(&["fix", "t.pv:3", "--use", "1"]);
+    assert_eq!(code, 0, "{out}");
+    let (code, out) = pv(&["run", "t.pv", "--base-url", &site.1, "--evidence", "ev"]);
+    assert_eq!(code, 0, "{out}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn accessibility_is_checked_by_axe() {
     let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
     let dir = std::env::temp_dir().join(format!("pv-a11y-{}", std::process::id()));

@@ -540,18 +540,30 @@ impl Runner {
         };
         let words = scope.words(&words).unwrap_or(words);
         let Some(want) = crate::nearest::wanted(&words) else { return Vec::new() };
-        let mut ranked = match self.command(&["ax".into(), "--format".into(), "json".into()]) {
-            Ok(ax) => crate::nearest::rank(&ax, &want, 3),
-            Err(_) => Vec::new(),
+        let mut nodes = match self.command(&["ax".into(), "--format".into(), "json".into()]) {
+            Ok(Value::Array(a)) => a,
+            _ => Vec::new(),
         };
+        // The text tree has what frames hold too.
+        if let Ok(Value::String(tree)) = self.command(&["ax".into(), "--limit".into(), "0".into()]) {
+            nodes.extend(crate::nearest::from_tree(&tree));
+        }
+        let mut ranked = crate::nearest::rank(&Value::Array(nodes), &want, 3);
         // Unsure (nothing close, or the two best close together): with a
         // decision model configured, its pick on the page as it is goes first.
         let unsure = ranked.first().is_none_or(|t| t.2 < 0.6) || (ranked.len() > 1 && ranked[0].2 - ranked[1].2 < 0.1);
         if unsure && navigera::decide::Decider::from_env().is_some() {
             if let Some(pick) = self.decide(&want) {
                 ranked.retain(|r| r.1 != pick.1);
-                ranked.insert(0, pick);
-                ranked.truncate(3);
+                // First only when the model is as sure as navigera's own
+                // `--find` needs to act (0.5); else one more candidate, last.
+                if pick.2 >= 0.5 {
+                    ranked.insert(0, pick);
+                    ranked.truncate(3);
+                } else {
+                    ranked.truncate(2);
+                    ranked.push(pick);
+                }
             }
         }
         ranked

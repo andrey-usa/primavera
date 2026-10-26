@@ -116,6 +116,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.page(FORM)
         if u.path == "/done":
             return self.page("<h1>Thanks</h1>")
+        if u.path == "/framed":
+            # A button inside a frame whose name a test misspells.
+            return self.page('<iframe srcdoc="<button>Subscibe</button>"></iframe>')
         if u.path == "/a11y":
             # An image without alt and a button without a name, outside #ok.
             return self.page('<main><h1>Gallery</h1><section id=ok><p>Fine here.</p></section>'
