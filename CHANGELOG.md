@@ -23,3 +23,5 @@ The first release, still to be named.
   `primavera navigera …`, navigera itself, built in.
 - A GitHub Action (`action.yml`) and a container image (`Dockerfile`).
 - `help` and `--help` print the usage, as running it bare does.
+- `expect request … body` + a comparison: the last matching response's
+  body as text, for a response that isn't JSON or a check on its wording.

@@ -909,6 +909,16 @@ impl Runner {
         res
     }
 
+    /// The body of response `#n` in the page's network log, as text (empty
+    /// when it can't be read).
+    fn response_body(&mut self, n: &str) -> String {
+        let file = std::env::temp_dir().join(format!("primavera-body-{}-{n}.txt", std::process::id()));
+        let got = self.command(&["network".into(), n.to_string(), "--body-file".into(), file.display().to_string()]);
+        let body = got.ok().and_then(|_| std::fs::read_to_string(&file).ok()).unwrap_or_default();
+        let _ = std::fs::remove_file(&file);
+        body
+    }
+
     /// One navigera command line, run in-process.
     fn command(&mut self, words: &[String]) -> Result<Value, String> {
         let words = self.absolute(words)?;
@@ -1343,19 +1353,18 @@ impl Runner {
                         let n = hits.len().to_string();
                         (compare(&n, e.matcher, value), format!("{n} ({})", none()))
                     }
+                    RequestRead::Body => match hits.last() {
+                        None => (false, none()),
+                        Some(n) => {
+                            let body = self.response_body(n);
+                            let cut: String = body.chars().take(200).collect();
+                            (compare(&body, e.matcher, value), cut)
+                        }
+                    },
                     RequestRead::Json(path) => match hits.last() {
                         None => (false, none()),
                         Some(n) => {
-                            let file =
-                                std::env::temp_dir().join(format!("primavera-body-{}-{n}.json", std::process::id()));
-                            let got = self.command(&[
-                                "network".into(),
-                                n.clone(),
-                                "--body-file".into(),
-                                file.display().to_string(),
-                            ]);
-                            let body = got.ok().and_then(|_| std::fs::read_to_string(&file).ok()).unwrap_or_default();
-                            let _ = std::fs::remove_file(&file);
+                            let body = self.response_body(n);
                             let steps = crate::expect::json_path(path)?;
                             match serde_json::from_str::<Value>(&body) {
                                 Ok(json) => match crate::expect::json_at(&json, &steps) {
@@ -1643,6 +1652,7 @@ fn describe(e: &Expect, value: &str, actual: &str, limit: Duration) -> String {
             let read = match read {
                 RequestRead::Made => String::new(),
                 RequestRead::Json(p) => format!(" json {p}"),
+                RequestRead::Body => " body".to_string(),
                 RequestRead::Count => " count".to_string(),
             };
             format!(

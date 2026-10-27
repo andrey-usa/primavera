@@ -68,6 +68,7 @@ expect ${order} matches "^ORD-[0-9]+$"
 expect js "document.forms.length" >= 1     # or truthy without a comparison
 expect request POST /api/orders status 201
 expect request POST /api/orders json $.items[0].sku is sku-1
+expect request POST /api/cart body contains "added"   # the response as text
 expect request GET /api/items* count >= 2
 expect cookie session                      # present; or compared; `no cookie x`, `cookie x absent`
 expect storage local cart contains sku-1

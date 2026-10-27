@@ -150,6 +150,8 @@ pub enum RequestRead {
     Made,
     /// `json <$.path>`: a value in the last matching response's JSON.
     Json(String),
+    /// `body`: the last matching response's body, as text.
+    Body,
     Count,
 }
 
@@ -479,9 +481,9 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
             (Subject::Js(code), m, v)
         }
         "request" => {
-            // request <METHOD> <url glob> [status <n>] [json <$.path> | count <comparison> <value>]
+            // request <METHOD> <url glob> [status <n>] [json <$.path> | body | count <comparison> <value>]
             let usage =
-                "expect request <METHOD> <url glob> [status <n>] [json <$.path> | count] [<comparison> <value>]";
+                "expect request <METHOD> <url glob> [status <n>] [json <$.path> | body | count] [<comparison> <value>]";
             let method = words.get(1).ok_or(usage)?.to_uppercase();
             let url = words.get(2).ok_or(usage)?.clone();
             let mut rest = &words[3..];
@@ -500,6 +502,10 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
                     let (m, v) = tail(&rest[2..], "the JSON path")?;
                     (Subject::Request { method, url, status, read: RequestRead::Json(path) }, m, v)
                 }
+                Some("body") => {
+                    let (m, v) = tail(&rest[1..], "the body")?;
+                    (Subject::Request { method, url, status, read: RequestRead::Body }, m, v)
+                }
                 Some("count") => {
                     let (m, v) = tail(&rest[1..], "count")?;
                     if !v.contains("${") {
@@ -509,7 +515,7 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
                 }
                 Some(other) => {
                     return Err(format!(
-                        "after the request: `status <n>`, `json <$.path> …`, `count …` or nothing (got {other:?})"
+                        "after the request: `status <n>`, `json <$.path> …`, `body …`, `count …` or nothing (got {other:?})"
                     ))
                 }
             }
@@ -882,6 +888,12 @@ mod tests {
         assert!(matches!(e.subject, Subject::Request { read: RequestRead::Count, .. }));
         assert!(p("request GET /x json total is 1").unwrap_err().contains("JSON path"));
         assert!(p("request GET /x count is many").is_err());
+        let e = p("request POST /api/cart status 200 body contains \"added\"").unwrap();
+        assert!(
+            matches!(e.subject, Subject::Request { read: RequestRead::Body, ref status, .. } if status.as_deref() == Some("200"))
+        );
+        assert_eq!((e.matcher, e.value.as_str()), (Matcher::Contains, "added"));
+        assert!(p("request GET /x body").is_err());
         let e = p("cookie session absent").unwrap();
         assert!(e.negate && e.matcher == Matcher::Holds);
         assert!(p("storage local cart absent").unwrap().negate);

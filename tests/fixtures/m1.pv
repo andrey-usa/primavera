@@ -8,6 +8,7 @@ scenario "Subjects"
   click --selector "#order"
   expect title is ORD-7
   expect request POST /api/order json $.items[0].sku is sku-1
+  expect request POST /api/order body contains '"sku": "sku-1"'
   expect request POST /api/order status 200 count is 1
   expect console contains "m1 ready"
   expect cookie nothing absent

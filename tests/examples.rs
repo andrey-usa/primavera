@@ -906,7 +906,7 @@ fn the_newer_subjects_and_isolation_between_scenarios() {
         let (code, out) = primavera(&["run", "tests/fixtures/m1.pv", "--base-url", &site.1, "--workers", workers]);
         assert_eq!(code, 1, "{out}");
         assert!(out.contains("5 passed, 1 failed"), "workers {workers}: {out}");
-        assert!(out.contains("FAIL  tests/fixtures/m1.pv:22  Soft expectations fail it at the end"), "{out}");
+        assert!(out.contains("FAIL  tests/fixtures/m1.pv:23  Soft expectations fail it at the end"), "{out}");
         assert!(out.contains("2 soft expectation(s) didn't hold"), "{out}");
     }
     // Every run of a scenario downloads into a directory of its own: the

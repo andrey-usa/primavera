@@ -150,6 +150,7 @@ Status: pre-release. Everything below works in this build.
 | `js "<expression>"` (or `eval`) [+ a comparison] | a script in the page: truthy, or its value compared |
 | `request <METHOD> <url glob> [status <n>]`, `no request <METHOD> <url glob>` | a request the page made in this scenario (`*` in the URL matches anything) |
 | `request … json <$.path>` + a comparison | a value in the last matching response's JSON: `$`, `.key`, `[0]`, `["key"]` (`$.items[0].sku`) |
+| `request … body` + a comparison | the last matching response's body, as text (`body contains "added to cart"`) |
 | `request … count` + a comparison | how many matching requests |
 | `cookie <name>` [+ a comparison], `no cookie <name>`, `cookie <name> absent` | a cookie of the scenario's browser context |
 | `storage local\|session <key>` [+ a comparison \| `absent`] | Local or Session Storage |
