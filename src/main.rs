@@ -460,8 +460,8 @@ fn main() -> ExitCode {
                     }
                 }
                 let n: usize = suites.iter().map(|s| s.scenarios.len()).sum();
-                let w = if warnings > 0 { format!(", {warnings} warning(s)") } else { String::new() };
-                println!("ok: {} file(s), {n} scenario(s){w}", suites.len());
+                let w = if warnings > 0 { format!(", {}", counted(warnings, "warning")) } else { String::new() };
+                println!("ok: {}, {}{w}", counted(suites.len(), "file"), counted(n, "scenario"));
                 ExitCode::SUCCESS
             }
             Err(e) => {
@@ -633,7 +633,7 @@ fn run(args: Args) -> ExitCode {
     let left = queue.lock().map(|q| q.len()).unwrap_or(0);
     if left > 0 {
         eprintln!("the browser didn't start: {}", launch_errors.first().map(String::as_str).unwrap_or("?"));
-        eprintln!("{left} scenario(s) not run");
+        eprintln!("{} not run", counted(left, "scenario"));
         if results.is_empty() {
             return ExitCode::from(3);
         }
@@ -902,4 +902,9 @@ impl Timings {
             let _ = std::fs::write(Self::PATH, serde_json::to_string_pretty(&all).unwrap_or_default());
         }
     }
+}
+
+/// `1 file`, `2 files`.
+fn counted(n: usize, what: &str) -> String {
+    format!("{n} {what}{}", if n == 1 { "" } else { "s" })
 }

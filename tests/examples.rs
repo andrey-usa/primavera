@@ -110,7 +110,7 @@ fn a_failure_says_what_was_expected_seen_and_why() {
 fn lint_and_list_need_no_browser() {
     let (code, out) = primavera(&["lint", "examples"]);
     assert_eq!(code, 0, "{out}");
-    assert!(out.contains("4 file(s), 10 scenario(s)"), "{out}");
+    assert!(out.contains("4 files, 10 scenarios"), "{out}");
     let (code, out) = primavera(&["list", "examples", "--tag", "smoke"]);
     assert_eq!(code, 0, "{out}");
     assert_eq!(out.lines().count(), 2, "{out}");
@@ -943,7 +943,7 @@ fn auth_runs_once_and_hooks_wrap_the_file() {
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("before all: expected title is \"not this one\""), "{out}");
     let (_, out) = primavera(&["lint", "tests/fixtures/auth.pv", "--secrets", &secrets]);
-    assert!(out.contains("ok: 1 file(s), 5 scenario(s)") && !out.contains("warning"), "{out}");
+    assert!(out.contains("ok: 1 file, 5 scenarios") && !out.contains("warning"), "{out}");
 }
 
 #[test]

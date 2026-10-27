@@ -868,6 +868,26 @@ fn check_suite(suite: &Suite) -> Result<(), ParseError> {
                     }
                     a => a,
                 };
+                // A browser step navigera would refuse (a misspelled step,
+                // a flag it lacks) fails here, before any browser starts,
+                // so `lint` catches it too. A word with a variable in it is
+                // checked with a stand-in value.
+                let words = match action {
+                    Action::Command(w) => Some(w),
+                    Action::Save { command, .. }
+                        if !matches!(command.first().map(String::as_str), Some("json" | "header")) =>
+                    {
+                        Some(command)
+                    }
+                    _ => None,
+                };
+                if let Some(words) = words.filter(|w| w.first().is_some_and(|op| !op.contains("${"))) {
+                    let stand_in: Vec<String> =
+                        words.iter().map(|w| if w.contains("${") { "1".to_string() } else { w.clone() }).collect();
+                    if let Err(message) = crate::runner::parse(&stand_in) {
+                        return Err(ParseError { file: file.to_path_buf(), line: st.line, message });
+                    }
+                }
                 if let Action::As(name) = action {
                     if !suite.auths.contains_key(name) {
                         return Err(ParseError {
@@ -1155,10 +1175,27 @@ pub fn parse_words(words: &[String]) -> Result<Action, String> {
                     words[1]
                 ));
             }
+            // `click "Buy now"`: visible text, not the CSS `buy now` (no
+            // element is named that). A word CSS could mean (`button`,
+            // `#save`, `.nav a`) stays CSS.
+            if TAKES_A_REF.contains(&op) && op != "drag" && words.get(1).is_some_and(|w| reads_as_text(w)) {
+                let mut out = vec![words[0].clone(), "--text".to_string()];
+                out.extend(words[1..].iter().cloned());
+                return Ok(Action::Command(out));
+            }
             Ok(Action::Command(words.to_vec()))
         }
         None => Err("empty step".into()),
     }
+}
+
+/// A step's first word that only makes sense as the text of an element:
+/// no CSS punctuation, and a space, a capital or a non-ASCII letter in it.
+fn reads_as_text(word: &str) -> bool {
+    !word.starts_with('-')
+        && !word.contains("${")
+        && !word.contains(['#', '.', '[', ']', ':', '>', '~', '+', '*', '=', '(', ')', '"', '\''])
+        && word.chars().any(|c| c.is_whitespace() || c.is_uppercase() || !c.is_ascii())
 }
 
 /// The `.pv` files under each path (a file is taken as is).
@@ -1390,6 +1427,41 @@ mod tests {
         assert_eq!(un, [(6, "row".to_string()), (9, "missing".to_string())]);
         assert_eq!(unset_vars(&s, &s.scenarios[0], &["row".into(), "missing".into()]), []);
         assert_eq!(used_vars("$${x}-${y}-${z:-1}"), [("y".to_string(), false), ("z".to_string(), true)]);
+    }
+
+    #[test]
+    fn a_quoted_target_is_visible_text_and_css_stays_css() {
+        let words = |line: &str| match parse_step(line).unwrap() {
+            Action::Command(w) => w,
+            a => panic!("{a:?}"),
+        };
+        assert_eq!(words("click \"Buy now\""), ["click", "--text", "Buy now"]);
+        assert_eq!(words("fill \"Email\" a@b.c"), ["fill", "--text", "Email", "a@b.c"]);
+        assert_eq!(words("click Café"), ["click", "--text", "Café"]);
+        for css in ["click button", "click #save", "click \".nav a\"", "click \"[data-x=1]\"", "click --text Go"] {
+            assert_eq!(words(css), tokenize(css).unwrap(), "{css}");
+        }
+    }
+
+    /// `lint` (and a run, before its browser starts) stops at a step
+    /// navigera has no command for, wherever the step is.
+    #[test]
+    fn a_misspelled_step_is_a_file_error() {
+        let check = |text: &str| {
+            let mut suites = vec![parse(Path::new("t.pv"), text).unwrap()];
+            resolve(&mut suites)
+        };
+        let e = check("scenario \"x\"\n  goto /\n  clik --text Go\n").unwrap_err();
+        assert_eq!(e.line, 3);
+        assert!(e.message.contains("unknown command \"clik\""), "{e}");
+        assert!(e.message.contains("click"), "{e}");
+        let e = check("flow f\n  optional clik --text Go\nscenario \"x\"\n  run f\n").unwrap_err();
+        assert_eq!(e.line, 2);
+        let e = check("scenario \"x\"\n  save t = gett title\n").unwrap_err();
+        assert_eq!(e.line, 2, "{e}");
+        // Variables stand in for values; `save … = json` is primavera's own.
+        check("set w = 800\nscenario \"x\"\n  goto /${w}\n  click --text ${w}\n  save t = get title\n  save id = json $.id\n")
+            .unwrap();
     }
 
     #[test]

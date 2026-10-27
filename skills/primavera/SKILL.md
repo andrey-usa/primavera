@@ -34,7 +34,10 @@ scenario "Adding a product counts it in the cart" @smoke
   `route`, `state load`, `tab-select`, …). Use locators, never refs:
   `--role button --name "Pay"`, `--label Email`, `--text "Sign in"`,
   `--testid total`, `--placeholder`, `--selector <css>`, `--nth`.
-  Frames and open shadow roots are searched for you.
+  A bare target reads as text when CSS can't mean it (`click "Buy now"` is
+  `click --text "Buy now"`) and as CSS otherwise (`click button`). Frames
+  and open shadow roots are searched for you. A step name navigera doesn't
+  know fails `lint` and the run before the browser starts.
 - Relative files a step reads (`upload --file`, `state load`, `eval
   --file`, `route --body-file`) are found next to the `.pv` file.
 - `save NAME = <command>` keeps a result (`save id = get text --testid order`).
