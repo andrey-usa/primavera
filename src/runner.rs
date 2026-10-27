@@ -651,6 +651,17 @@ impl Runner {
                 scope.saved.insert(name.clone(), v);
                 Ok(())
             }
+            Action::Print(command) => {
+                let words = scope.words(command)?;
+                let v = self.command(&words)?;
+                let text = match v {
+                    Value::String(s) => s,
+                    // One line: an agent reads every byte of it.
+                    other => other.to_string(),
+                };
+                scope.notes.push(format!("{PRINTED}{}: {}", step.line, clip(&text, PRINT_MAX)));
+                Ok(())
+            }
             Action::Save { name, command } => {
                 let words = scope.words(command)?;
                 let v = self.command(&words)?;
@@ -1739,6 +1750,29 @@ fn describe(e: &Expect, value: &str, actual: &str, limit: Duration) -> String {
         _ => format!("saw {seen:?}"),
     };
     format!("expected {not}{what}{want} within {} ms; {seen}", limit.as_millis())
+}
+
+/// How a `print` step's output starts in a scenario's notes, which the
+/// console shows (other notes, optional steps that didn't happen, it
+/// doesn't).
+pub const PRINTED: &str = "print at line ";
+
+/// The most a `print` shows: a page's tree is long, and what the test
+/// needs is usually near its top.
+const PRINT_MAX: usize = 6000;
+
+/// `text` cut to `max` bytes at a character boundary, saying how much was
+/// left out.
+fn clip(text: &str, max: usize) -> String {
+    if text.len() <= max {
+        return text.to_string();
+    }
+    let cut = text.floor_char_boundary(max);
+    format!(
+        "{}… ({} more bytes; print a part: `--selector`, `--limit`, or a smaller `eval`)",
+        &text[..cut],
+        text.len() - cut
+    )
 }
 
 /// Why the browser didn't start, in words that say what to do. navigera's

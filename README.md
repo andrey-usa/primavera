@@ -65,6 +65,10 @@ Status: pre-release. Everything below works in this build.
 - A `set` value can hold `${…}` too (a default, a `--var`, another `set`,
   a secret, the environment): it is filled in once, when a scenario starts.
 - `save NAME = <command>` keeps a command's result (`get text …`).
+- `print <command>` shows a read command's result in the run's output
+  (`print get text --testid total`, `print eval "…"`, `print ax --selector
+  main`): no check and no wait, for a look at the page or a value while a
+  test is being written.
 - `exec [--timeout-ms <ms>] <program> <args…>` runs a program (no shell:
   `sh -c "…"` or `pwsh -c "…"` for one) in the `.pv` file's directory,
   with `PRIMAVERA_BASE_URL` set, for what a browser can't reach: seed a

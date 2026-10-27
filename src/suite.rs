@@ -32,6 +32,10 @@ pub enum Action {
         name: String,
         command: Vec<String>,
     },
+    /// `print <command…>`: a read command (`get text …`, `eval …`, `ax`,
+    /// `url`) whose result the run prints, checking nothing and waiting
+    /// for nothing: a look at the page or a value while the test is written.
+    Print(Vec<String>),
     /// `run <flow> <args…>`.
     Run {
         flow: String,
@@ -470,7 +474,7 @@ pub fn unset_vars(suite: &Suite, sc: &Scenario, run_vars: &[String]) -> Vec<(usi
     let mut out = Vec::new();
     fn words(a: &Action) -> Vec<String> {
         match a {
-            Action::Command(w) => w.clone(),
+            Action::Command(w) | Action::Print(w) => w.clone(),
             Action::Save { command, .. } => command.clone(),
             Action::Run { args, .. } => args.clone(),
             Action::Optional(inner) => words(inner),
@@ -895,7 +899,7 @@ fn check_suite(suite: &Suite) -> Result<(), ParseError> {
                 // so `lint` catches it too. A word with a variable in it is
                 // checked with a stand-in value.
                 let words = match action {
-                    Action::Command(w) => Some(w),
+                    Action::Command(w) | Action::Print(w) => Some(w),
                     Action::Save { command, .. }
                         if !matches!(command.first().map(String::as_str), Some("json" | "header")) =>
                     {
@@ -959,7 +963,7 @@ fn check_suite(suite: &Suite) -> Result<(), ParseError> {
 /// paths, `-` (stdin) and paths that start with a variable are left alone.
 fn anchor_inputs(action: &mut Action, dir: &Path) {
     let words = match action {
-        Action::Command(w) | Action::Save { command: w, .. } => w,
+        Action::Command(w) | Action::Print(w) | Action::Save { command: w, .. } => w,
         Action::Optional(inner) => return anchor_inputs(inner, dir),
         Action::Exec { argv, dir: d, .. } => {
             // It runs there; a program named by a path is found from there.
@@ -1072,6 +1076,14 @@ pub fn parse_words(words: &[String]) -> Result<Action, String> {
                 return Err("expected `save NAME = <command>`".into());
             }
             Ok(Action::Save { name: words[1].clone(), command: words[3..].to_vec() })
+        }
+        Some("print") => {
+            if words.len() < 2 {
+                return Err("print needs a command whose result to show: `print get text --testid total`, \
+                            `print eval \"document.title\"`, `print ax --selector main`"
+                    .into());
+            }
+            Ok(Action::Print(words[1..].to_vec()))
         }
         Some("run") => {
             let flow = words.get(1).ok_or("expected `run <flow> <args…>`")?.clone();
@@ -1300,6 +1312,9 @@ mod tests {
         assert_eq!(s.scenarios[0].steps[0].line, 9);
         assert!(matches!(s.scenarios[0].steps[1].action, Action::Expect(_)));
         assert!(matches!(&s.scenarios[0].steps[2].action, Action::Save { name, .. } if name == "n"));
+        let p = parse(Path::new("p.pv"), "scenario \"p\"\n  print get text --testid total\n").unwrap();
+        assert!(matches!(&p.scenarios[0].steps[0].action, Action::Print(w) if w[0] == "get" && w[3] == "total"));
+        assert!(parse(Path::new("p.pv"), "scenario \"p\"\n  print\n").unwrap_err().to_string().contains("print needs"));
     }
 
     #[test]

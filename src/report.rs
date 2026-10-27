@@ -73,6 +73,13 @@ pub fn console_line(r: &ScenarioResult) -> String {
     };
     let tries = if r.attempt > 1 { format!(", try {}", r.attempt) } else { String::new() };
     let _ = writeln!(out, "{mark:<5} {}:{}  {}  ({}{tries})", rel(&r.file), r.line, r.name, secs(r.ms));
+    for n in r.notes.iter().filter_map(|n| n.strip_prefix(crate::runner::PRINTED)) {
+        let (line, text) = n.split_once(": ").unwrap_or(("?", n));
+        let _ = writeln!(out, "      print, line {line}:");
+        for l in text.lines() {
+            let _ = writeln!(out, "        {l}");
+        }
+    }
     if let Some(f) = &r.failure {
         failure_lines(&mut out, f, "      ", &r.file);
     } else if let Some(f) = r.retried.first() {
@@ -686,5 +693,31 @@ mod tests {
             rep: 0,
             started: 0.0,
         }
+    }
+
+    #[test]
+    fn printed_values_show_under_their_scenario() {
+        let r = ScenarioResult {
+            file: PathBuf::from("p.pv"),
+            name: "Looks".into(),
+            line: 1,
+            tags: vec![],
+            ms: 10.0,
+            steps: vec![],
+            failure: None,
+            attempt: 1,
+            retried: vec![],
+            saved: Default::default(),
+            notes: vec![
+                format!("{}2: 49.55", crate::runner::PRINTED),
+                "optional step at line 3 didn't happen: x".into(),
+            ],
+            worker: 0,
+            rep: 0,
+            started: 0.0,
+        };
+        let out = console_line(&r);
+        assert!(out.contains("print, line 2:\n        49.55"), "{out}");
+        assert!(!out.contains("optional step"), "{out}");
     }
 }

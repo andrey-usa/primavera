@@ -29,3 +29,6 @@ The first release, still to be named.
   to the `.pv` (an expression, or a function body that `return`s its
   answer), for one across rows or too long to quote on a line.
 - `primavera <command> --help` prints that command's usage and options.
+- `print <command>`: a step that shows a read command's result (a value,
+  a locator's text, the page's tree) under its scenario in the run's
+  output, checking nothing and waiting for nothing.
