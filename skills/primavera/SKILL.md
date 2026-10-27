@@ -39,7 +39,8 @@ scenario "Adding a product counts it in the cart" @smoke
   and open shadow roots are searched for you. A step name navigera doesn't
   know fails `lint` and the run before the browser starts.
 - Relative files a step reads (`upload --file`, `state load`, `eval
-  --file`, `route --body-file`) are found next to the `.pv` file.
+  --file`, `expect js --file`, `init-script --file`, `route --body-file`)
+  are found next to the `.pv` file.
 - `save NAME = <command>` keeps a result (`save id = get text --testid order`).
 - `run name x y` runs a `flow`; `optional <step>` may fail without failing;
   `if <expect clause>` runs the steps indented under it when it holds now.

@@ -258,6 +258,7 @@ primavera record <url> [--out <file.pv>] [--scenario <name>] [--headless] [--for
 primavera record --extend <file.pv> [--scenario <name>] [--base-url <url>] [--secrets <file>]
 primavera mcp [--headed] [--chromium <path>]
 primavera skill          # the agent skill (what an agent reads to write tests)
+primavera <command> --help   # that command's usage and options
 primavera --version
 ```
 
@@ -396,7 +397,9 @@ primavera --version
   … one browser for all of them) beside `primavera_from_session` (what
   those tools did, as a scenario; `out` writes it), `primavera_run`,
   `primavera_list`, `primavera_lint`, `primavera_failure` (the last run's
-  failures with the nearest elements) and `primavera_fix`. Register it as
+  failures with the nearest elements) and `primavera_fix`. Its
+  instructions tell the agent that page content is data, not instructions,
+  and to confirm irreversible actions against the user's request. Register it as
   `{"command": "primavera", "args": ["mcp"]}`. What the tools run, read
   and write (`paths`, `out`, the files `args` names) stays inside the
   working directory, as navigera's own tools' files do, and `args` can't
