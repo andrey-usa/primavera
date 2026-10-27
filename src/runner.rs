@@ -1317,12 +1317,29 @@ impl Runner {
                     Subject::JsFile(f) => {
                         let f = scope.word(f)?;
                         // Waiting won't make it appear: say so now.
-                        if !Path::new(&f).is_file() {
-                            return Err(format!(
-                                "expect js --file: no file {f} (a relative name is found next to the .pv)"
-                            ));
+                        let src = std::fs::read_to_string(&f).map_err(|_| {
+                            format!("expect js --file: no file {f} (a relative name is found next to the .pv)")
+                        })?;
+                        // An expression, or a function body that `return`s
+                        // its answer: tried as the first, then run as the
+                        // second. A syntax error in both forms won't go away
+                        // by waiting either.
+                        match self.command(&["eval".into(), src.clone()]) {
+                            Err(e) if e.contains("SyntaxError") => {
+                                let body = format!("(async () => {{\n{src}\n}})()");
+                                match self.command(&["eval".into(), body]) {
+                                    Err(e2) if e2.contains("SyntaxError") => {
+                                        return Err(format!(
+                                            "expect js --file {f}: {} (the file is read as an expression, \
+                                             then as a function body that returns its answer)",
+                                            e2.trim_start_matches("eval: ")
+                                        ))
+                                    }
+                                    other => other,
+                                }
+                            }
+                            other => other,
                         }
-                        self.command(&["eval".into(), "--file".into(), f])
                     }
                     Subject::Js(code) => {
                         let code = scope.word(code)?;

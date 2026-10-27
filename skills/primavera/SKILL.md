@@ -69,7 +69,7 @@ expect --testid total text is "$36.00"     # text, value, attr <name>, style <pr
 expect --selector .card count >= 3
 expect ${order} matches "^ORD-[0-9]+$"
 expect js "document.forms.length" >= 1     # or truthy without a comparison
-expect js --file totals.js                 # a longer check, in a file next to the .pv
+expect js --file totals.js                 # a file next to the .pv: an expression, or a body that returns
 expect request POST /api/orders status 201
 expect request POST /api/orders json $.items[0].sku is sku-1
 expect request POST /api/cart body contains "added"   # the response as text

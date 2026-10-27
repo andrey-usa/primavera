@@ -113,13 +113,15 @@ pub fn render(text: &str, only: Option<usize>, dir: &Path) -> String {
             s["ms"].as_f64().unwrap_or(0.0),
             s["text"].as_str().unwrap_or("")
         );
-        let here = format!("{} {:?}", s["url"].as_str().unwrap_or(""), s["title"].as_str().unwrap_or(""));
+        // As the run printed it: the page and its title, the error in a .pv
+        // file's terms (the trace keeps navigera's own text).
+        let here = crate::report::page_at(s["url"].as_str().unwrap_or(""), s["title"].as_str().unwrap_or(""));
         if here != place || only.is_some() {
-            let _ = writeln!(out, "                    at {here}");
+            let _ = writeln!(out, "                    {here}");
             place = here;
         }
         if let Some(e) = s["error"].as_str() {
-            for l in e.lines() {
+            for l in crate::runner::pv_terms(e).lines() {
                 let _ = writeln!(out, "                    {l}");
             }
         }
@@ -213,7 +215,7 @@ mod tests {
         let all = render(&text, None, Path::new("ev/shop"));
         assert!(all.starts_with("FAIL shop.pv:3  \"Pays\""), "{all}");
         assert!(all.contains("    4  ok        120 ms  goto /cart"), "{all}");
-        assert!(all.contains("at http://x/cart \"Cart\""), "{all}");
+        assert!(all.contains("at http://x/cart, title \"Cart\""), "{all}");
         assert!(all.contains("net #1 GET 200"), "{all}");
         assert_eq!(all.matches("at http://x/cart").count(), 1, "said once while it stays: {all}");
         assert!(all.contains("console error: boom 4") && !all.contains("boom 5"), "{all}");

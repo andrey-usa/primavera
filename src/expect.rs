@@ -577,11 +577,11 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
             let mut rest = words[1..].iter();
             while let Some(w) = rest.next() {
                 let list = |v: Option<&String>| -> Result<Vec<String>, String> {
-                    let v = v.ok_or(usage)?;
+                    let v = v.ok_or_else(|| format!("{w} needs a comma-separated list, like {w} wcag2a,wcag2aa"))?;
                     Ok(v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
                 };
                 match w.as_str() {
-                    "--selector" => selector = Some(rest.next().ok_or(usage)?.clone()),
+                    "--selector" => selector = Some(rest.next().ok_or("--selector needs a CSS selector")?.clone()),
                     "--tags" => tags.extend(list(rest.next())?),
                     "--ignore" => ignore.extend(list(rest.next())?),
                     _ => return Err(format!("{usage} (got {w:?})")),
