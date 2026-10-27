@@ -82,7 +82,8 @@ run options:
   --headed              show the browser
   --chromium <path>     the browser to run
   --engine lightpanda   run on Lightpanda (no layout: a fast smoke tier; screenshots and pixel checks fail)
-  --evidence <dir>      failure screenshots and downloads (default .primavera/runs/<time>)
+  --evidence <dir>      failure screenshots and downloads (default .primavera/runs/<time>;
+                        a directory you name is used as given, links included)
   --pause-on-failure    keep the browser at a failure, open to `navigera --attach`, until Enter (one worker)
 
 exit codes: 0 all passed, 1 a scenario failed, 2 a file or an argument is wrong, 3 the browser or the app server didn't start
@@ -356,6 +357,15 @@ fn main() -> ExitCode {
     if first.as_deref().is_some_and(|a| a == "--session" || a.starts_with("--session=")) {
         return navigera::cli::main(std::env::args());
     }
+    // `.primavera` holds run evidence, timings and sign-in state. A project
+    // can bring its own as a link (a cloned repository): don't write through
+    // one.
+    if !matches!(first.as_deref(), None | Some("-h" | "--help" | "help" | "skill" | "--version" | "-V" | "version")) {
+        if let Err(e) = own_state_dir() {
+            eprintln!("{e}");
+            return ExitCode::from(2);
+        }
+    }
     // The test loop over MCP: navigera's browser tools and primavera's own.
     // Flags after `mcp` are navigera's (`--headed`, `--chromium <path>`).
     if first.as_deref() == Some("mcp") {
@@ -481,8 +491,36 @@ fn main() -> ExitCode {
     }
 }
 
+/// An error if `.primavera`, or a directory in it primavera writes to, is a
+/// link: it would send evidence, timings and sign-in state wherever the link
+/// points.
+fn own_state_dir() -> Result<(), String> {
+    for path in [".primavera", ".primavera/runs", ".primavera/auth"] {
+        if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+            let to = std::fs::read_link(path).map(|t| format!(" (to {})", t.display())).unwrap_or_default();
+            return Err(format!(
+                "{path} is a link{to}. primavera keeps run evidence, timings and sign-in state there and \
+                 doesn't write through a link a project brought with it: remove the link (a real \
+                 directory is fine)"
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn run(args: Args) -> ExitCode {
     let started = Instant::now();
+    // This run's own evidence directory, under `.primavera/runs`, must be
+    // new: one already there as a link was put there for this moment.
+    if args.opts.evidence.starts_with(".primavera")
+        && std::fs::symlink_metadata(&args.opts.evidence).is_ok_and(|m| m.file_type().is_symlink())
+    {
+        eprintln!(
+            "{} is a link: primavera doesn't write evidence through a link a project brought with it; remove it",
+            args.opts.evidence.display()
+        );
+        return ExitCode::from(2);
+    }
     let suites = match load(&args.paths) {
         Ok(s) => s,
         Err(e) => {
