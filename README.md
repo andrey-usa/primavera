@@ -491,8 +491,9 @@ and evidence in `/work/out`, a memory-backed `/dev/shm`.
 
 ## Building
 
-primavera links navigera as a library, checked out beside it at the
-branch primavera's CI builds against (`master`, as of navigera 0.6.1):
+primavera links navigera as a library, checked out beside it. CI builds
+against navigera's `master`; a release builds against the navigera tag it
+names:
 
 ```text
 work/
