@@ -910,12 +910,22 @@ impl Runner {
     }
 
     /// The body of response `#n` in the page's network log, as text (empty
-    /// when it can't be read).
+    /// when it can't be read). Read through a file in the run's own
+    /// evidence directory: a fixed name in the shared temp directory is one
+    /// another user could have put a link at first.
     fn response_body(&mut self, n: &str) -> String {
-        let file = std::env::temp_dir().join(format!("primavera-body-{}-{n}.txt", std::process::id()));
+        let dir = self.opts.evidence.join(".bodies");
+        if std::fs::create_dir_all(&dir).is_err() {
+            return String::new();
+        }
+        let file = dir.join(format!("{}-{n}.txt", std::process::id()));
         let got = self.command(&["network".into(), n.to_string(), "--body-file".into(), file.display().to_string()]);
         let body = got.ok().and_then(|_| std::fs::read_to_string(&file).ok()).unwrap_or_default();
         let _ = std::fs::remove_file(&file);
+        // Gone again, and the run's directory with it if nothing else is in
+        // it (a passing run keeps no evidence).
+        let _ = std::fs::remove_dir(&dir);
+        let _ = std::fs::remove_dir(&self.opts.evidence);
         body
     }
 
