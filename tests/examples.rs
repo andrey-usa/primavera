@@ -787,7 +787,7 @@ fn a_trace_records_each_step_and_reads_back() {
     assert!(all.starts_with("FAIL ") && all.contains("\"Traced\""), "{all}{list}");
     assert!(all.contains("console error: boom-trace"), "{all}");
     assert!(all.contains("net #") && all.contains("/api/n"), "{all}");
-    assert!(all.contains("/login \"t\""), "{all}");
+    assert!(all.contains("/login, title \"t\""), "{all}");
     let one = Command::new(env!("CARGO_BIN_EXE_primavera")).arg("trace").arg(&scenario).arg("5").output().unwrap();
     let one = String::from_utf8_lossy(&one.stdout).to_string();
     assert!(one.contains("FAIL") && one.contains("the page at the failure (ax.txt)"), "{one}");
