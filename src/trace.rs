@@ -50,6 +50,25 @@ pub fn step(
 
 /// The trace file of `dir`, or of each scenario directory under it.
 fn find(dir: &Path) -> Vec<PathBuf> {
+    let here = traces_in(dir);
+    if !here.is_empty() {
+        return here;
+    }
+    // `.primavera/runs` (the default): its traces are two levels down, in
+    // `<time>/<scenario>/`. Take the latest run that has any.
+    let mut runs: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    runs.sort();
+    runs.iter().rev().map(|run| traces_in(run)).find(|t| !t.is_empty()).unwrap_or_default()
+}
+
+/// `dir`'s own trace, else those one directory down.
+fn traces_in(dir: &Path) -> Vec<PathBuf> {
     let own = dir.join("trace.jsonl");
     if own.is_file() {
         return vec![own];
@@ -137,7 +156,9 @@ pub fn show(dir: &Path, only: Option<usize>) -> Result<String, String> {
     let files = find(dir);
     match files.as_slice() {
         [] => Err(format!(
-            "no trace.jsonl in {} or the directories under it (run with --trace on-failure or --trace all)",
+            "no trace in {}, in a scenario's directory under it, or in the latest run under it. Give a \
+             run's directory (.primavera/runs/<time>) or one scenario's; a run writes traces with \
+             --trace on-failure (scenarios that fail) or --trace all",
             dir.display()
         )),
         [one] => {

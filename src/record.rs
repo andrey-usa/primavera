@@ -211,7 +211,7 @@ pub fn main(args: &[String]) -> Result<String, String> {
     let out = flag("--out");
     let scenario = flag("--scenario").cloned().unwrap_or_else(|| "Recorded".to_string());
     let config = SessionConfig { headed: !headless, ..SessionConfig::default() };
-    let mut driver = Driver::launch(&config).map_err(|e| format!("the browser didn't start: {e:#}"))?;
+    let mut driver = Driver::launch(&config).map_err(|e| crate::runner::browser_failed(&format!("{e:#}")))?;
     run(&mut driver, &["init-script", &recorder()])?;
     run(&mut driver, &["goto", &url])?;
     eprintln!("recording {url}: use the page; {}", how_to_stop(until, out.map(String::as_str)));
@@ -285,7 +285,7 @@ fn extend(
         opts.base = suite.base.clone();
     }
     let base = opts.base.clone();
-    let mut r = crate::runner::Runner::launch(opts).map_err(|e| format!("the browser didn't start: {e:#}"))?;
+    let mut r = crate::runner::Runner::launch(opts).map_err(|e| crate::runner::browser_failed(&format!("{e:#}")))?;
     let vars = if suite.before_all.is_empty() {
         Default::default()
     } else {

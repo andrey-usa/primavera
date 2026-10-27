@@ -21,13 +21,23 @@ fn rel(p: &Path) -> String {
         .unwrap_or_else(|| p.display().to_string())
 }
 
+/// Where the page was: `at <url>, title "…"`, the title left out when the
+/// page has none (a bare `""` read as a stray quote).
+pub fn page_at(url: &str, title: &str) -> String {
+    if title.is_empty() {
+        format!("at {url}")
+    } else {
+        format!("at {url}, title {title:?}")
+    }
+}
+
 fn failure_lines(out: &mut String, f: &Failure, indent: &str, file: &Path) {
     let _ = writeln!(out, "{indent}line {}: {}", f.line, f.text);
     for l in f.message.lines() {
         let _ = writeln!(out, "{indent}{l}");
     }
     if let Some((url, title)) = &f.at {
-        let _ = writeln!(out, "{indent}at {url} {title:?}");
+        let _ = writeln!(out, "{indent}{}", page_at(url, title));
     }
     if !f.nearest.is_empty() {
         let _ = writeln!(out, "{indent}nearest on the page:");
@@ -227,7 +237,7 @@ pub fn junit(results: &[ScenarioResult], ms: f64) -> String {
                 Some(f) => {
                     let mut body = format!("line {}: {}\n{}\n", f.line, f.text, f.message);
                     if let Some((url, title)) = &f.at {
-                        let _ = writeln!(body, "at {url} {title:?}");
+                        let _ = writeln!(body, "{}", page_at(url, title));
                     }
                     for (shown, locator, _) in &f.nearest {
                         let _ = writeln!(body, "nearest: {shown}  {locator}");
@@ -288,17 +298,15 @@ struct Embeds {
     bytes: usize,
 }
 
-fn failure_html(out: &mut String, f: &Failure, title: &str) {
-    let _ = write!(
-        out,
-        "<div class=failure><div class=what>{} line {}: <code>{}</code></div>",
-        esc(title),
-        f.line,
-        esc(&f.text)
-    );
+/// A failure's box; `in_table`: its step is in the steps table below, so
+/// the box doesn't say the line a second time.
+fn failure_html(out: &mut String, f: &Failure, title: &str, in_table: bool) {
+    let step = if in_table { String::new() } else { format!(": <code>{}</code>", esc(&f.text)) };
+    let _ = write!(out, "<div class=failure><div class=what>{} line {}{step}</div>", esc(title), f.line);
     let _ = write!(out, "<pre>{}</pre>", esc(&f.message));
     if let Some((url, page)) = &f.at {
-        let _ = write!(out, "<div>at <code>{}</code> {}</div>", esc(url), esc(&format!("{page:?}")));
+        let titled = if page.is_empty() { String::new() } else { format!(", title {}", esc(&format!("{page:?}"))) };
+        let _ = write!(out, "<div>at <code>{}</code>{titled}</div>", esc(url));
     }
     if !f.nearest.is_empty() {
         out.push_str("<div>nearest on the page:</div><ol>");
@@ -446,10 +454,11 @@ pub fn html(results: &[ScenarioResult], ms: f64, report_dir: &Path) -> String {
             r.worker
         );
         if let Some(f) = &r.failure {
-            failure_html(&mut out, f, "failed at");
+            let in_table = r.steps.iter().any(|s| !s.ok && s.line == f.line && s.text == f.text);
+            failure_html(&mut out, f, "failed at", in_table);
         }
         for (i, f) in r.retried.iter().enumerate() {
-            failure_html(&mut out, f, &format!("try {} failed at", i + 1));
+            failure_html(&mut out, f, &format!("try {} failed at", i + 1), false);
             screenshot_html(&mut out, f, report_dir, &mut embedded);
         }
         if !r.steps.is_empty() {

@@ -43,6 +43,9 @@ pub enum Subject {
     Errors,
     /// A JavaScript expression in the page: truthy, or compared.
     Js(String),
+    /// `expect js --file <f.js>`: a script in a file beside the `.pv` (found
+    /// there as `eval --file` is), for a check too long to quote on one line.
+    JsFile(String),
     /// A request the page made (since the scenario started): method (or
     /// `*`), URL glob, an optional status, and what to compare: nothing
     /// (one was made), a value in its JSON response, or how many.
@@ -475,8 +478,13 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
             }
             (Subject::Ax { flags, tree: Vec::new() }, Matcher::Holds, String::new())
         }
+        "js" | "eval" if words.get(1).map(String::as_str) == Some("--file") => {
+            let file = words.get(2).ok_or("expect js --file <script.js>: the file's name")?.clone();
+            let (m, v) = optional_tail(&words[3..], "js")?;
+            (Subject::JsFile(file), m, v)
+        }
         "js" | "eval" => {
-            let code = words.get(1).ok_or("expect js \"<expression>\"")?.clone();
+            let code = words.get(1).ok_or("expect js \"<expression>\", or expect js --file <script.js>")?.clone();
             let (m, v) = optional_tail(&words[2..], "js")?;
             (Subject::Js(code), m, v)
         }
@@ -602,7 +610,7 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
             2.. => {
                 (Subject::Text { text: words[1].clone(), within: within(&words[2..])? }, Matcher::Holds, String::new())
             }
-            _ => return Err("expect text \"<text>\" (quote text with spaces; it takes no comparator)".into()),
+            _ => return Err("expect text needs the text to look for: `expect text \"Thanks\"`".into()),
         },
         w if w.starts_with("${") => {
             let (m, v) = tail(&words[1..], w)?;
@@ -652,11 +660,15 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
                     (Subject::Target { flags, prop: Prop::Count }, m, v)
                 }
                 other => {
+                    let said = match other {
+                        Some(w) => format!("{w:?} isn't one"),
+                        None => "nothing was said".to_string(),
+                    };
                     return Err(format!(
-                        "after the target: a state ({}), or text/value/attr <name>/style <property>/count and a comparison (got {:?})",
+                        "after the target, say what to check, e.g. `visible` or `text is \"Saved\"` ({said}). \
+                         States: {}; or text, value, attr <name>, style <property> or count, then a comparison",
                         STATES.join(", "),
-                        other.unwrap_or("nothing")
-                    ))
+                    ));
                 }
             }
         }
@@ -824,7 +836,7 @@ mod tests {
         assert!(p("url sounds-like x").unwrap_err().contains("after url"));
         assert!(p("title is").unwrap_err().contains("needs a value"));
         assert!(p("--testid total text is $36 dollars").unwrap_err().contains("quote it"));
-        assert!(p("--role button pressed").unwrap_err().contains("a state"));
+        assert!(p("--role button pressed").unwrap_err().contains("say what to check"));
         assert!(p("--role button count is 2").unwrap_err().contains("--selector"));
         assert!(p("url matches \"(\"").unwrap_err().contains("regular expression"));
         assert!(p("text a b").is_err());
@@ -836,6 +848,8 @@ mod tests {
         assert_eq!((e.subject, e.matcher), (Subject::Js("document.forms.length".into()), Matcher::Ge));
         let e = p("eval \"String(1 + 1)\" is 2").unwrap();
         assert_eq!(e.subject, Subject::Js("String(1 + 1)".into()));
+        let e = parse(&["js".into(), "--file".into(), "totals.js".into(), "is".into(), "true".into()]).unwrap();
+        assert_eq!((e.subject, e.matcher), (Subject::JsFile("totals.js".into()), Matcher::Is));
         let e = p("js \"window.ready === true\"").unwrap();
         assert_eq!(e.matcher, Matcher::Holds);
         let e = p("request post /api/orders status 201").unwrap();

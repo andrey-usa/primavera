@@ -20,6 +20,12 @@ pub fn history(session: &str) -> Result<Vec<Value>, String> {
         let e = v["error"].as_str().unwrap_or("no answer");
         return Err(if e.contains("unknown") && e.contains("history") {
             format!("{e}\n(this session's navigera has no `history`: start the session with this primavera's navigera)")
+        } else if e.starts_with("no navigera session at") {
+            // Its socket's path is navigera's business.
+            format!(
+                "no navigera session named {session:?}: start one with `primavera navigera -s {session} start`, \
+                 do what the test should do, then run this again"
+            )
         } else {
             e.to_string()
         });

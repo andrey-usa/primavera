@@ -610,9 +610,8 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
             Some("set") => {
                 // set NAME = value…
                 let rest = trimmed["set".len()..].trim();
-                let (name, value) = rest
-                    .split_once('=')
-                    .ok_or_else(|| err(line_no, "expected `set NAME = value`".into()))?;
+                let (name, value) =
+                    rest.split_once('=').ok_or_else(|| err(line_no, "expected `set NAME = value`".into()))?;
                 let name = name.trim();
                 if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
                     return Err(err(line_no, format!("bad variable name {name:?}")));
@@ -656,11 +655,15 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
                 }
                 let ttl_s = match &words[2..] {
                     [] => None,
-                    [t, d] if t == "ttl" => Some(
-                        duration_s(d)
-                            .ok_or_else(|| err(line_no, format!("ttl takes a duration like 30m, 1h, 90s, 2d (got {d:?})")))?,
-                    ),
-                    other => return Err(err(line_no, format!("after the auth's name: `ttl <duration>` or nothing (got {other:?})"))),
+                    [t, d] if t == "ttl" => Some(duration_s(d).ok_or_else(|| {
+                        err(line_no, format!("ttl takes a duration like 30m, 1h, 90s, 2d (got {d:?})"))
+                    })?),
+                    other => {
+                        return Err(err(
+                            line_no,
+                            format!("after the auth's name: `ttl <duration>` or nothing (got {other:?})"),
+                        ))
+                    }
                 };
                 if suite.auths.contains_key(&name) {
                     return Err(err(line_no, format!("a second auth named {name:?}")));
@@ -681,7 +684,8 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
                     }
                     None => (rest, Vec::new()),
                 };
-                let ok = |n: &str| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+                let ok =
+                    |n: &str| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
                 if !ok(name) || !params.iter().all(|p: &String| ok(p)) {
                     return Err(err(line_no, format!("bad flow header {rest:?} (expected `flow name(a, b)`)")));
                 }
@@ -705,9 +709,10 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
                 if suite.flows.contains_key(&name) {
                     return Err(err(line_no, format!("a second step {pattern:?}")));
                 }
-                suite
-                    .flows
-                    .insert(name.clone(), Flow { name: name.clone(), params, file: file.to_path_buf(), line: line_no, steps: Vec::new() });
+                suite.flows.insert(
+                    name.clone(),
+                    Flow { name: name.clone(), params, file: file.to_path_buf(), line: line_no, steps: Vec::new() },
+                );
                 block = Block::Flow(name);
             }
             Some("scenario") => {
@@ -717,7 +722,8 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
                 while k < words.len() {
                     let w = &words[k];
                     if w == "for" && words.get(k + 1).map(String::as_str) == Some("each") {
-                        let csv = words.get(k + 2).ok_or_else(|| err(line_no, "expected `for each <file.csv>`".into()))?;
+                        let csv =
+                            words.get(k + 2).ok_or_else(|| err(line_no, "expected `for each <file.csv>`".into()))?;
                         let path = file.parent().unwrap_or(Path::new(".")).join(csv);
                         let text = std::fs::read_to_string(&path)
                             .map_err(|e| err(line_no, format!("reading {}: {e}", path.display())))?;
@@ -728,7 +734,12 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
                     }
                     match w.strip_prefix('@') {
                         Some(t) if !t.is_empty() => tags.push(t.to_string()),
-                        _ => return Err(err(line_no, format!("after the name, only @tags or `for each <file.csv>`: {w:?}"))),
+                        _ => {
+                            return Err(err(
+                                line_no,
+                                format!("after the name, only @tags or `for each <file.csv>`: {w:?}"),
+                            ))
+                        }
                     }
                     k += 1;
                 }
@@ -739,10 +750,21 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
                 block = Block::Scenario;
             }
             Some(other) => {
+                // A step at the left margin is the common slip: say that.
+                let step = other == "expect"
+                    || matches!(other, "save" | "run" | "optional" | "if" | "handoff")
+                    || navigera::protocol::op_help("navigera", other).is_some();
                 return Err(err(
                     line_no,
-                    format!("unknown line {other:?} (top level: set, base, use, flow, auth, before all|each, after each|all, scenario; steps are indented)"),
-                ))
+                    if step {
+                        format!(
+                            "{other:?} is a step, and a step sits indented under a scenario (or `before each`, a \
+                             flow, …): add `scenario \"<name>\"` above it and indent it"
+                        )
+                    } else {
+                        format!("unknown line {other:?} (top level: set, base, use, flow, auth, before all|each, after each|all, scenario; steps are indented)")
+                    },
+                ));
             }
             None => {}
         }
@@ -959,6 +981,12 @@ fn anchor_inputs(action: &mut Action, dir: &Path) {
             }
             return;
         }
+        Action::Expect(Expect { subject: crate::expect::Subject::JsFile(f), .. }) => {
+            if !f.starts_with("${") && Path::new(f.as_str()).is_relative() {
+                *f = dir.join(f.as_str()).to_string_lossy().into_owned();
+            }
+            return;
+        }
         Action::Http { body_file: Some(f), .. } => {
             if !f.starts_with("${") && Path::new(f.as_str()).is_relative() {
                 *f = dir.join(f.as_str()).to_string_lossy().into_owned();
@@ -1159,7 +1187,7 @@ pub fn parse_words(words: &[String]) -> Result<Action, String> {
                 return Err("expected `optional <step>`".into());
             }
             match parse_words(&words[1..])? {
-                Action::Optional(_) => Err("`optional optional`".into()),
+                Action::Optional(_) => Err("`optional` is said once, before the step: `optional click …`".into()),
                 a => Ok(Action::Optional(Box::new(a))),
             }
         }

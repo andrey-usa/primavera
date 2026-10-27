@@ -527,7 +527,7 @@ impl Runner {
         Failure {
             line: step.line,
             text: step.text.clone(),
-            message,
+            message: pv_terms(&message),
             at,
             hint: scope.noop.clone(),
             screenshot,
@@ -1312,9 +1312,25 @@ impl Runner {
                     None => (false, "not measured yet".into()),
                 }
             }
-            Subject::Js(code) => {
-                let code = scope.word(code)?;
-                match self.command(&["eval".into(), code]) {
+            Subject::Js(_) | Subject::JsFile(_) => {
+                let ran = match &e.subject {
+                    Subject::JsFile(f) => {
+                        let f = scope.word(f)?;
+                        // Waiting won't make it appear: say so now.
+                        if !Path::new(&f).is_file() {
+                            return Err(format!(
+                                "expect js --file: no file {f} (a relative name is found next to the .pv)"
+                            ));
+                        }
+                        self.command(&["eval".into(), "--file".into(), f])
+                    }
+                    Subject::Js(code) => {
+                        let code = scope.word(code)?;
+                        self.command(&["eval".into(), code])
+                    }
+                    _ => unreachable!("matched above"),
+                };
+                match ran {
                     Ok(v) => {
                         let actual = match &v {
                             Value::String(s) => s.clone(),
@@ -1658,6 +1674,7 @@ fn describe(e: &Expect, value: &str, actual: &str, limit: Duration) -> String {
         Subject::Var(v) => v.clone(),
         Subject::Errors => "no page errors".to_string(),
         Subject::Js(c) => format!("js {c:?}"),
+        Subject::JsFile(f) => format!("js --file {f}"),
         Subject::Request { method, url, status, read } => {
             let read = match read {
                 RequestRead::Made => String::new(),
@@ -1697,7 +1714,66 @@ fn describe(e: &Expect, value: &str, actual: &str, limit: Duration) -> String {
     } else {
         actual.to_string()
     };
-    format!("expected {not}{what}{want} within {} ms; saw {seen:?}", limit.as_millis())
+    // Text looked for on the page has no value to show: "saw \"absent\""
+    // read as if the page showed the word.
+    let seen = match (&e.subject, seen.as_str()) {
+        (Subject::Text { .. }, "absent") => "it isn't on the page".to_string(),
+        (Subject::Text { .. }, "present") => "it is still on the page".to_string(),
+        _ => format!("saw {seen:?}"),
+    };
+    format!("expected {not}{what}{want} within {} ms; {seen}", limit.as_millis())
+}
+
+/// Why the browser didn't start, in words that say what to do. navigera's
+/// text leads with its launch flags (`engine=chrome, headed=false`) and, for a
+/// missing screen, three lines of Chrome's log with the reason in the middle.
+pub fn browser_failed(e: &str) -> String {
+    let rest = match e.find("): ") {
+        Some(at) if e.starts_with("browser launch failed (") => &e[at + 3..],
+        _ => e,
+    };
+    if e.contains("Missing X server or $DISPLAY") {
+        return "the browser didn't start: it was to open a window (--headed, or `record`) and there is no \
+                screen here ($DISPLAY isn't set). Run headless, or on a machine with a display"
+            .into();
+    }
+    if let Some(at) = rest.find("spawn ").filter(|_| rest.contains("No such file or directory")) {
+        let path = rest[at + 6..].split(" --").next().unwrap_or("").trim();
+        return format!(
+            "the browser didn't start: there is no browser at {path}. Point --chromium or CHROME_BIN at \
+             Chrome, Chromium or Edge, or run `primavera navigera install-browser`"
+        );
+    }
+    let rest = rest.replace("`navigera install-browser`", "`primavera navigera install-browser`");
+    format!("the browser didn't start: {rest}")
+}
+
+/// navigera's errors end with advice for its own loop (read `ax`, act on a
+/// ref), which a `.pv` file can't follow: refs change between runs and are
+/// refused. Here the screenshot and a locator are the way.
+pub fn pv_terms(message: &str) -> String {
+    let mut out = message.to_string();
+    for (from, to) in [
+        (
+            "(a word that is not a number is read as CSS; refs are the numbers in `ax`, as in `click 12`, and --text matches visible text)",
+            "(a bare word is read as CSS; for what the page shows, quote it: click \"Buy now\", or use --text)",
+        ),
+        ("; run `ax` to see the page)", "; the screenshot shows the page)"),
+    ] {
+        out = out.replace(from, to);
+    }
+    if out.contains("ERR_CONNECTION_REFUSED") && !out.contains("[server]") {
+        out.push_str(" (a [server] in primavera.toml can start the app before the run)");
+    }
+    // Any other `(… ax …)` aside, in this navigera's words or an older one's.
+    while let Some(at) = out.find("`ax`") {
+        let (Some(open), Some(close)) = (out[..at].rfind('('), out[at..].find(')').map(|c| at + c)) else { break };
+        out.replace_range(
+            open..=close,
+            "(the screenshot shows the page; a locator such as --role button --name \"…\" or --label may find it)",
+        );
+    }
+    out
 }
 
 /// Run a program (no shell) in `dir`, reading its output as it comes, and
@@ -2016,4 +2092,35 @@ fn enter(wait: Option<Duration>) -> Result<bool, ()> {
 /// Running under CI: `CI` set to anything but empty, `false` or `0`.
 pub fn under_ci() -> bool {
     std::env::var("CI").is_ok_and(|v| !matches!(v.trim(), "" | "false" | "0"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn navigera_advice_is_put_in_a_pv_files_terms() {
+        let m = pv_terms("click text \"Buy now\": no element with text \"Buy now\" within 600 ms (run `ax` to see the page and act on a ref from it)");
+        assert!(!m.contains("`ax`") && m.contains("screenshot") && m.contains("--role button"), "{m}");
+        let old = pv_terms(
+            "click: no element matches selector \"Buy now\" within 1500 ms (run `ax` to see the page and act by --ref)",
+        );
+        assert!(!old.contains("--ref") && !old.contains("`ax`"), "{old}");
+        let refused = pv_terms("goto http://127.0.0.1:1/: net::ERR_CONNECTION_REFUSED");
+        assert!(refused.contains("[server]"), "{refused}");
+    }
+
+    #[test]
+    fn a_browser_that_did_not_start_says_what_to_do() {
+        let missing = browser_failed("browser launch failed (engine=chrome, headed=false): launch chrome: spawn /no/chrome --remote-debugging-pipe: No such file or directory (os error 2)");
+        assert!(missing.contains("no browser at /no/chrome") && !missing.contains("engine="), "{missing}");
+        let screen = browser_failed(
+            "browser launch failed (engine=chrome, headed=true): closed (… Missing X server or $DISPLAY …)",
+        );
+        assert!(screen.contains("no screen"), "{screen}");
+        let none = browser_failed(
+            "browser launch failed (engine=chrome, headed=false): no Chrome found — run `navigera install-browser`",
+        );
+        assert!(none.contains("`primavera navigera install-browser`") && !none.contains("engine="), "{none}");
+    }
 }

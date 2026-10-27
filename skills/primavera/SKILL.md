@@ -69,6 +69,7 @@ expect --testid total text is "$36.00"     # text, value, attr <name>, style <pr
 expect --selector .card count >= 3
 expect ${order} matches "^ORD-[0-9]+$"
 expect js "document.forms.length" >= 1     # or truthy without a comparison
+expect js --file totals.js                 # a longer check, in a file next to the .pv
 expect request POST /api/orders status 201
 expect request POST /api/orders json $.items[0].sku is sku-1
 expect request POST /api/cart body contains "added"   # the response as text
@@ -122,12 +123,15 @@ or the app server didn't start.
 
 ## When it fails
 
-The output names the line, what was expected and what was seen, the page,
-a screenshot under `.primavera/runs/`, the closest elements on the page as
-locators (paste one in), and whether the click before changed nothing on
-the page (the page may not have been ready: add an `expect` for what shows
-it is ready, before the click). Open the page with navigera to look:
-`navigera -s look start && navigera -s look goto <url> && navigera -s look ax`.
+The output names the line, what was expected and what was seen, the page
+and its title, and a screenshot under `.primavera/runs/`. When the element
+wasn't found, it lists the closest ones on the page as locators (paste one
+in, or `primavera fix`); when an earlier click changed nothing on the page,
+it says so (the page may not have been ready: add an `expect` for what shows
+it is ready, before the click). To look at the page yourself:
+`primavera navigera -s look start && primavera navigera -s look goto <url> &&
+primavera navigera -s look ax`. `primavera run --help` lists the run's
+options.
 
 ## From exploring to a test
 

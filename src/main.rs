@@ -32,62 +32,153 @@ const SKILL_MD: &str = include_str!("../skills/primavera/SKILL.md");
 const USAGE: &str = "\
 primavera: plain-text web tests on real Chrome (through navigera)
 
-usage:
-  primavera run [<file.pv|file.feature|dir>...] [options]
-                                                run scenarios (default: the current directory)
-  primavera lint [<file|dir>...]                check files without a browser
-  primavera list [<file|dir>...]                the scenarios a run would take
-  primavera trace <dir> [<line>]                a recorded trace (--trace): every step, or one in full
-  primavera fix [<file>:<line>] [--use <n>] [--all [--min <p>]]
-                                                put a suggestion of the last run (nearest on the page) into the failing step
-  primavera navigera <command…>                 navigera's commands, built in (`primavera navigera -s work goto <url>`)
-  primavera from-session <name> [--scenario <s>] [--out <f.pv>]
-                                                what a navigera session did, as a scenario (refs as locators)
-  primavera record <url> [--out <f.pv>] [--scenario <s>] [--headless] [--for <s>]
-                                                a browser to use by hand; what you do becomes a scenario
-  primavera record --extend <f.pv> [--scenario <s>] [--base-url <url>] [--secrets <file>]
-                                                run a scenario to its end, then record more steps into it
-  primavera mcp [--headed] [--chromium <path>]  an MCP server: navigera's browser tools and primavera_from_session/run/failure/fix
-  primavera skill                               the agent skill (the format and commands, for an AI agent)
-  primavera --version
+usage: primavera <command> [...]
 
-run options:
-  --base-url <url>      where relative URLs (`goto /cart`) point (else `base` in the file, PRIMAVERA_BASE_URL)
-  --var <name=value>    a variable for ${name} (repeatable)
-  --secrets <file>      NAME=value lines for ${secret:NAME} (the environment comes first); masked in output
-  --grep <text>         only scenarios whose name contains it
-  --tag <tag>           only scenarios with this @tag (repeatable: any of them)
-  --workers <n|auto>    scenarios at once (default 1; auto: half the CPUs, at most 8); also -j <n>
-  --isolation <how>     context (default): one browser, a browser context per worker; browser: a browser each
-  --retries <n>         run a failing scenario again, up to n times; one that then passes is flaky
-  --fail-on-flaky       a flaky scenario fails the run
-  --shard <i/n>         run the i-th of n slices (for CI matrix jobs)
-  --repeat <n>          run every scenario n times (flake hunting: each run is reported, then a pass count)
-  --shuffle [<seed>]    run in a random order (the seed is printed; give it again to repeat the order)
-  --reporter <name>     console (default), jsonl (one JSON object per scenario on stdout), github
-                        (workflow annotations; on by itself under GitHub Actions); repeatable
-  --config <file>       settings, a [server] and [env.<name>] profiles (default: ./primavera.toml)
-  --env <name>          the config's [env.<name>] profile on top of the rest
-  --update-screenshots  a screenshot that differs from its baseline (or has none) becomes it
-  --compare-report <k>  what `expect download … compare` keeps: html, json, rows (comma-separated) or none (default html)
-  --trace <when>        on-failure or all: each step's page, console and requests in trace.jsonl
-                        beside the screenshot (and ax.txt at a failure); read it with `primavera trace`
-  --junit <file>        also write JUnit XML
-  --cucumber <file>     also write Cucumber JSON for the .feature files (step by step)
-  --allure <dir>        also write Allure results (a JSON file per scenario run, screenshots attached)
-  --html <file>         also write the run as one HTML page (steps, times, failures with their screenshot)
-  --json                print what the scenarios saved, as one JSON object, at the end
-  --timeout-ms <ms>     how long an expect retries (default 5000)
-  --wait-ms <ms>        how long a step waits for its element (navigera's default 5000)
-  --headed              show the browser
-  --chromium <path>     the browser to run
-  --engine lightpanda   run on Lightpanda (no layout: a fast smoke tier; screenshots and pixel checks fail)
-  --evidence <dir>      failure screenshots and downloads (default .primavera/runs/<time>;
-                        a directory you name is used as given, links included)
-  --pause-on-failure    keep the browser at a failure, open to `navigera --attach`, until Enter (one worker)
+commands:
+  run [<file|dir>...]    run scenarios (default: every .pv and .feature file
+                         under the current directory)
+  lint [<file|dir>...]   check files without a browser
+  list [<file|dir>...]   the scenarios a run would take
+  trace [<dir>] [<line>] a trace a run recorded (--trace): every step, or one
+  fix [<file>:<line>]    put a suggestion from the last run into a failing step
+  record <url>           a browser to use by hand; what you do becomes a
+                         scenario
+  from-session <name>    what a navigera session did, as a scenario
+  navigera <command…>    navigera's commands, built in
+                         (primavera navigera -s work goto <url>)
+  mcp                    an MCP server: navigera's browser tools and
+                         primavera's own
+  skill                  the agent skill: the .pv format, steps and expect forms
+  --version
 
-exit codes: 0 all passed, 1 a scenario failed, 2 a file or an argument is wrong, 3 the browser or the app server didn't start
+`primavera <command> --help` lists a command's options. Steps, locators and
+expect forms: `primavera skill`.
+
+exit codes: 0 all passed, 1 a scenario failed, 2 a file or an argument is
+wrong, 3 the browser or the app server didn't start
 ";
+
+/// `run`'s options, for `primavera run --help`.
+const RUN_OPTIONS: &[(&str, &str)] = &[
+    ("--base-url <url>", "where relative URLs (`goto /cart`) point (else `base` in the file, PRIMAVERA_BASE_URL)"),
+    ("--var <name=value>", "a variable for ${name} (repeatable)"),
+    ("--secrets <file>", "NAME=value lines for ${secret:NAME} (the environment comes first); masked in output"),
+    ("--grep <text>", "only scenarios whose name contains it"),
+    ("--tag <tag>", "only scenarios with this @tag (repeatable: any of them)"),
+    ("--workers <n|auto>", "scenarios at once (default 1; auto: half the CPUs, at most 8); also -j <n>"),
+    ("--isolation <how>", "context (default): one browser, a browser context per worker; browser: a browser each"),
+    ("--retries <n>", "run a failing scenario again, up to n times; one that then passes is flaky"),
+    ("--fail-on-flaky", "a flaky scenario fails the run"),
+    ("--shard <i/n>", "run the i-th of n slices (for CI matrix jobs)"),
+    ("--repeat <n>", "run every scenario n times (flake hunting: each run is reported, then a pass count)"),
+    ("--shuffle [<seed>]", "run in a random order (the seed is printed; give it again to repeat the order)"),
+    (
+        "--reporter <name>",
+        "console (default), jsonl (one JSON object per scenario on stdout), github (workflow annotations; on by itself under GitHub Actions); repeatable",
+    ),
+    ("--config <file>", "settings, a [server] and [env.<name>] profiles (default: ./primavera.toml)"),
+    ("--env <name>", "the config's [env.<name>] profile on top of the rest"),
+    ("--update-screenshots", "a screenshot that differs from its baseline (or has none) becomes it"),
+    ("--compare-report <k>", "what `expect download … compare` keeps: html, json, rows (comma-separated) or none (default html)"),
+    (
+        "--trace <when>",
+        "on-failure or all: each step's page, console and requests in trace.jsonl beside the screenshot (and ax.txt at a failure); read it with `primavera trace`",
+    ),
+    ("--junit <file>", "also write JUnit XML"),
+    ("--cucumber <file>", "also write Cucumber JSON for the .feature files (step by step)"),
+    ("--allure <dir>", "also write Allure results (a JSON file per scenario run, screenshots attached)"),
+    ("--html <file>", "also write the run as one HTML page (steps, times, failures with their screenshot)"),
+    ("--json", "print what the scenarios saved, as one JSON object, at the end"),
+    ("--timeout-ms <ms>", "how long an expect retries (default 5000)"),
+    ("--wait-ms <ms>", "how long a step waits for its element (default 5000)"),
+    ("--headed", "show the browser"),
+    ("--chromium <path>", "the browser to run"),
+    ("--engine lightpanda", "run on Lightpanda (no layout: a fast smoke tier; screenshots and pixel checks fail)"),
+    (
+        "--evidence <dir>",
+        "failure screenshots and downloads (default .primavera/runs/<time>; a directory you name is used as given, links included)",
+    ),
+    ("--pause-on-failure", "keep the browser at a failure, open to `navigera --attach`, until Enter (one worker)"),
+];
+
+/// `text` after `prefix`, in lines of at most 80 columns; lines after the
+/// first start with `indent` spaces.
+fn wrapped(prefix: &str, text: &str, indent: usize) -> String {
+    let mut out = String::new();
+    let mut line = prefix.to_string();
+    let mut fresh = true;
+    for word in text.split_whitespace() {
+        if !fresh && line.chars().count() + 1 + word.chars().count() > 80 {
+            out.push_str(line.trim_end());
+            out.push('\n');
+            line = " ".repeat(indent);
+            fresh = true;
+        }
+        if !fresh {
+            line.push(' ');
+        }
+        line.push_str(word);
+        fresh = false;
+    }
+    out.push_str(line.trim_end());
+    out.push('\n');
+    out
+}
+
+/// `primavera <command> --help`: that command's usage and options.
+fn help_for(cmd: &str) -> Option<String> {
+    let text = match cmd {
+        "run" => {
+            let mut out = String::from(
+                "usage: primavera run [<file.pv|file.feature|dir>...] [options]\n\n\
+                 Runs the scenarios in the files, or in every .pv and .feature file under\n\
+                 the directories (default: the current one).\n\noptions:\n",
+            );
+            for (flag, what) in RUN_OPTIONS {
+                out.push_str(&wrapped(&format!("  {flag:<22} "), what, 25));
+            }
+            out
+        }
+        "lint" => "usage: primavera lint [<file|dir>...] [--var <name=value>] [--secrets <file>]\n\n\
+                   Checks .pv and .feature files without a browser: syntax, unknown steps,\n\
+                   and variables nothing sets (warnings: the run's environment may set them).\n"
+            .to_string(),
+        "list" => "usage: primavera list [<file|dir>...] [--grep <text>] [--tag <tag>]\n\
+                   \x20                     [--shard <i/n>]\n\n\
+                   The scenarios a run with the same options would take, one per line:\n\
+                   file:line, name and tags.\n"
+            .to_string(),
+        "trace" => "usage: primavera trace [<dir>] [<line>]\n\n\
+                    A trace that `run --trace on-failure|all` recorded: every step with its\n\
+                    page, console and requests, or the step at <line> in full. <dir> is a\n\
+                    run's directory (.primavera/runs/<time>) or one scenario's in it; by\n\
+                    default, the latest run's.\n"
+            .to_string(),
+        "fix" => fix::HELP.to_string(),
+        "from-session" => "usage: primavera from-session <navigera session> [--scenario <name>]\n\
+                           \x20                             [--out <file.pv>]\n\n\
+                           Writes what a navigera session did as a scenario, its refs turned into\n\
+                           locators that hold between runs.\n"
+            .to_string(),
+        "record" => "usage: primavera record <url> [--out <file.pv>] [--scenario <name>] [--headless]\n\
+                     \x20                       [--for <seconds>]\n\
+                     \x20      primavera record --extend <file.pv> [--scenario <name>]\n\
+                     \x20                       [--base-url <url>] [--secrets <file>]\n\n\
+                     Opens a browser to use by hand; what you do becomes a scenario. With\n\
+                     --extend, runs the scenario to its end first, then records more steps\n\
+                     into it. Needs a display.\n"
+            .to_string(),
+        "mcp" => "usage: primavera mcp [--headed] [--chromium <path>]\n\n\
+                  An MCP server on standard input and output: navigera's browser tools and\n\
+                  primavera_from_session, primavera_run, primavera_failure and primavera_fix.\n"
+            .to_string(),
+        "skill" => {
+            "usage: primavera skill\n\nPrints the agent skill: the .pv format, steps and expect forms.\n".to_string()
+        }
+        _ => return None,
+    };
+    Some(text)
+}
 
 struct Args {
     cmd: String,
@@ -256,7 +347,8 @@ fn parse_args() -> Result<Args, String> {
                 }
             }
             "-h" | "--help" => return Err(USAGE.to_string()),
-            f if f.starts_with('-') => return Err(format!("unknown option {f}\n\n{USAGE}")),
+            // One line: the whole usage under it scrolled the error away.
+            f if f.starts_with('-') => return Err(format!("unknown option {f} (primavera {cmd} --help lists them)")),
             p => paths.push(PathBuf::from(p)),
         }
     }
@@ -319,8 +411,20 @@ fn secrets_file(text: &str) -> Result<BTreeMap<String, String>, String> {
     Ok(out)
 }
 
+/// An I/O error without its `(os error N)`.
+fn plain_io(e: &std::io::Error) -> String {
+    let text = e.to_string();
+    match text.find(" (os error ") {
+        Some(at) => text[..at].to_string(),
+        None => text,
+    }
+}
+
 fn load(paths: &[PathBuf]) -> Result<Vec<suite::Suite>, String> {
-    let files = suite::discover(paths).map_err(|e| format!("reading {:?}: {e}", paths))?;
+    let files = suite::discover(paths).map_err(|e| {
+        let shown: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
+        format!("reading {}: {}", shown.join(", "), plain_io(&e))
+    })?;
     if files.is_empty() {
         return Err("no .pv or .feature files found".into());
     }
@@ -336,7 +440,8 @@ fn load(paths: &[PathBuf]) -> Result<Vec<suite::Suite>, String> {
                 Ok(s) => suites.push(s),
                 Err(e) => errors.push(e.to_string()),
             },
-            Err(e) => errors.push(format!("{}: {e}", f.display())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => errors.push(format!("{}: no such file", f.display())),
+            Err(e) => errors.push(format!("{}: {}", f.display(), plain_io(&e))),
         }
     }
     if !errors.is_empty() {
@@ -352,10 +457,23 @@ fn main() -> ExitCode {
     // served by this executable again (`--session <name> …` first).
     let first = std::env::args().nth(1);
     if first.as_deref() == Some("navigera") {
-        return navigera::cli::main(std::env::args().take(1).chain(std::env::args().skip(2)));
+        // Its help names the program it runs as: `primavera navigera -s s
+        // start`, not `primavera -s s start`, and says which navigera this is.
+        let rest: Vec<String> = std::env::args().skip(2).collect();
+        if rest.is_empty() || rest.iter().any(|a| matches!(a.as_str(), "--help" | "-h" | "help")) {
+            println!("(built into primavera {}; `primavera navigera` runs it)\n", env!("CARGO_PKG_VERSION"));
+        }
+        return navigera::cli::main(std::iter::once("primavera navigera".to_string()).chain(rest));
     }
     if first.as_deref().is_some_and(|a| a == "--session" || a.starts_with("--session=")) {
         return navigera::cli::main(std::env::args());
+    }
+    // `primavera <command> --help`: that command's own usage and options.
+    if let Some(text) = first.as_deref().and_then(help_for) {
+        if std::env::args().skip(2).any(|a| a == "--help" || a == "-h") {
+            print!("{text}");
+            return ExitCode::SUCCESS;
+        }
     }
     // `.primavera` holds run evidence, timings and sign-in state. A project
     // can bring its own as a link (a cloned repository): don't write through
@@ -375,8 +493,10 @@ fn main() -> ExitCode {
             Err(e) => {
                 eprintln!(
                     "primavera mcp: {}",
+                    // navigera's text names navigera's help; these flags are ours.
                     match e {
-                        navigera::protocol::ArgsError::Help(t) | navigera::protocol::ArgsError::Invalid(t) => t,
+                        navigera::protocol::ArgsError::Help(t) | navigera::protocol::ArgsError::Invalid(t) =>
+                            t.replace("navigera --help", "primavera mcp --help"),
                     }
                 );
                 return ExitCode::from(2);
@@ -485,7 +605,10 @@ fn main() -> ExitCode {
         },
         "run" => run(args),
         other => {
-            eprintln!("unknown command {other:?}\n\n{USAGE}");
+            eprintln!(
+                "unknown command {other:?}: the commands are run, lint, list, trace, fix, record, \
+                 from-session, navigera, mcp and skill (primavera --help)"
+            );
             ExitCode::from(2)
         }
     }
@@ -585,7 +708,7 @@ fn run(args: Args) -> ExitCode {
                 owner = Some(r);
             }
             Err(e) => {
-                eprintln!("the browser didn't start: {e:#}");
+                eprintln!("{}", runner::browser_failed(&format!("{e:#}")));
                 return ExitCode::from(3);
             }
         }
@@ -632,7 +755,7 @@ fn run(args: Args) -> ExitCode {
     drop(owner);
     let left = queue.lock().map(|q| q.len()).unwrap_or(0);
     if left > 0 {
-        eprintln!("the browser didn't start: {}", launch_errors.first().map(String::as_str).unwrap_or("?"));
+        eprintln!("{}", runner::browser_failed(launch_errors.first().map(String::as_str).unwrap_or("?")));
         eprintln!("{} not run", counted(left, "scenario"));
         if results.is_empty() {
             return ExitCode::from(3);
@@ -907,4 +1030,23 @@ impl Timings {
 /// `1 file`, `2 files`.
 fn counted(n: usize, what: &str) -> String {
     format!("{n} {what}{}", if n == 1 { "" } else { "s" })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn help_fits_80_columns_and_every_command_has_its_own() {
+        let mut all = vec![USAGE.to_string()];
+        for cmd in ["run", "lint", "list", "trace", "fix", "from-session", "record", "mcp", "skill"] {
+            all.push(help_for(cmd).unwrap_or_else(|| panic!("no help for {cmd}")));
+        }
+        for text in &all {
+            for line in text.lines() {
+                assert!(line.chars().count() <= 80, "{} columns: {line}", line.chars().count());
+            }
+        }
+        assert!(help_for("run").unwrap().contains("--pause-on-failure"));
+    }
 }

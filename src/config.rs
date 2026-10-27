@@ -186,7 +186,7 @@ pub fn load(explicit: Option<&Path>, env: Option<&str>) -> Result<Option<Config>
 }
 
 fn parse(text: &str, env: Option<&str>) -> Result<Profile, String> {
-    let mut table: toml::Table = text.parse().map_err(|e: toml::de::Error| e.message().to_string())?;
+    let mut table: toml::Table = text.parse().map_err(|e: toml::de::Error| at_line(text, &e))?;
     let envs = match table.remove("env") {
         Some(toml::Value::Table(t)) => t,
         Some(_) => return Err("`env` is a table of profiles: [env.<name>]".into()),
@@ -228,6 +228,17 @@ fn anchored(mut p: Profile, dir: &Path) -> Profile {
         s.cwd = Some(cwd);
     }
     p
+}
+
+/// A TOML error with the line it is on, as a `.pv` error says it.
+fn at_line(text: &str, e: &toml::de::Error) -> String {
+    match e.span() {
+        Some(span) => {
+            let line = text[..span.start.min(text.len())].matches('\n').count() + 1;
+            format!("line {line}: {}", e.message().trim_end().replace('\n', "; "))
+        }
+        None => e.message().trim_end().replace('\n', "; "),
+    }
 }
 
 #[cfg(test)]

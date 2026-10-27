@@ -25,3 +25,6 @@ The first release, still to be named.
 - `help` and `--help` print the usage, as running it bare does.
 - `expect request … body` + a comparison: the last matching response's
   body as text, for a response that isn't JSON or a check on its wording.
+- `expect js --file <script.js>` [+ a comparison]: a check from a file next
+  to the `.pv`, for one across rows or too long to quote on a line.
+- `primavera <command> --help` prints that command's usage and options.

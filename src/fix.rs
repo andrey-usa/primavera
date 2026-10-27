@@ -96,9 +96,10 @@ pub fn last_run() -> Result<Value, String> {
 }
 
 /// The failures that have suggestions.
-fn load() -> Result<Vec<Failure>, String> {
+fn load() -> Result<(Vec<Failure>, usize), String> {
     let v = last_run()?;
-    Ok(v["failures"]
+    let failed = v["failures"].as_array().map_or(0, Vec::len);
+    let with = v["failures"]
         .as_array()
         .into_iter()
         .flatten()
@@ -120,8 +121,40 @@ fn load() -> Result<Vec<Failure>, String> {
                 .collect(),
         })
         .filter(|f| !f.nearest.is_empty())
-        .collect())
+        .collect();
+    Ok((with, failed))
 }
+
+/// Why the last run left nothing to fix: no failures, or failures with no
+/// element near enough on the page to suggest.
+fn nothing(failed: usize) -> String {
+    match failed {
+        0 => "nothing to fix: the last run had no failures\n".into(),
+        1 => "nothing to fix: the last run's one failure had no similar element on the page to suggest \
+              (its screenshot is under .primavera/runs)\n"
+            .into(),
+        n => format!(
+            "nothing to fix: none of the last run's {n} failures had a similar element on the page to \
+             suggest (their screenshots are under .primavera/runs)\n"
+        ),
+    }
+}
+
+/// `primavera fix --help`.
+pub const HELP: &str = "\
+usage: primavera fix [<file>:<line>] [--use <n>] [--all [--min <p>]]
+
+Puts a suggestion from the last run into the step that failed. A run keeps,
+for each step whose element wasn't found, the elements on the page most like
+it (.primavera/last-run.json).
+
+  primavera fix                 list each failing step and its suggestions
+  primavera fix shop.pv:12      put suggestion 1 into that step
+  --use <n>                     put suggestion n instead
+  --all                         fix every failing step with its first
+                                suggestion, if it scores --min or more
+  --min <p>                     the least score --all takes (0 to 1; 0.6)
+";
 
 fn shown(p: &Path) -> String {
     std::env::current_dir()
@@ -172,7 +205,10 @@ fn apply(f: &Failure, n: usize) -> Result<String, String> {
 
 /// `primavera fix [<file>:<line>] [--use <n>] [--all [--min <p>]]`.
 pub fn main(args: &[String]) -> Result<String, String> {
-    let failures = load()?;
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        return Ok(HELP.to_string());
+    }
+    let (failures, failed) = load()?;
     let flag = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1));
     let n: usize = match flag("--use") {
         Some(v) => v.parse().map_err(|_| format!("--use takes a number, not {v:?}"))?,
@@ -206,7 +242,7 @@ pub fn main(args: &[String]) -> Result<String, String> {
                 _ => out.push_str(&format!("{}:{} kept: no suggestion scored {min} or more\n", shown(&f.file), f.line)),
             }
         }
-        return Ok(if out.is_empty() { "nothing to fix\n".into() } else { out });
+        return Ok(if out.is_empty() { nothing(failed) } else { out });
     }
     let mut out = String::new();
     for f in &failures {
@@ -216,7 +252,7 @@ pub fn main(args: &[String]) -> Result<String, String> {
         }
         out.push_str(&format!("  primavera fix {}:{} --use 1\n", shown(&f.file), f.line));
     }
-    Ok(if out.is_empty() { "the last run left nothing to fix\n".into() } else { out })
+    Ok(if out.is_empty() { nothing(failed) } else { out })
 }
 
 #[cfg(test)]
