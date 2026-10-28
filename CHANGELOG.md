@@ -51,3 +51,11 @@ The first release, still to be named.
 - `if expect text "…"` is the same as `if text "…"`: the word is optional.
 - An `if` on `js --file` finds its script next to the `.pv`, as `expect`
   does, from any directory.
+- An `expect` that cuts a long value says how many characters it left out
+  and that a `print` step shows the value whole; a quote left open says
+  how to write one inside quotes and shows the line.
+- `expect js` is bounded by its step's time: a script that never settles
+  fails at 5 s (or `--timeout-ms`), saying so, not after 35 s with a
+  DevTools method name. An `optional` step that did not hold shows as
+  `skip` in a trace and its HTML; `primavera trace <dir> <line>` says when
+  there is no such line, and a directory that isn't there says so.

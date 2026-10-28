@@ -282,10 +282,10 @@ pub fn tokenize(line: &str) -> Result<Vec<String>, String> {
                                 cur.push('\\');
                                 cur.push(ch);
                             }
-                            None => return Err("a quote \" is not closed".into()),
+                            None => return Err("a quote \" is not closed (inside double quotes, write \\\" for a quote, or use single quotes)".into()),
                         },
                         Some(ch) => cur.push(ch),
-                        None => return Err("a quote \" is not closed".into()),
+                        None => return Err("a quote \" is not closed (inside double quotes, write \\\" for a quote, or use single quotes)".into()),
                     }
                 }
             }
@@ -610,7 +610,7 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
             continue;
         }
         table = None;
-        let words = tokenize(trimmed).map_err(|m| err(line_no, m))?;
+        let words = tokenize(trimmed).map_err(|m| err(line_no, format!("{m}: {trimmed}")))?;
         match words.first().map(String::as_str) {
             Some("set") => {
                 // set NAME = value…
@@ -1100,7 +1100,8 @@ fn anchor_inputs(action: &mut Action, dir: &Path) {
 }
 
 fn parse_step(line: &str) -> Result<Action, String> {
-    let words = tokenize(line)?;
+    // The line with it: a long step's open quote is hard to find by number.
+    let words = tokenize(line).map_err(|m| format!("{m}: {line}"))?;
     parse_words(&words)
 }
 

@@ -245,7 +245,8 @@ mod tests {
     #[test]
     fn a_step_that_is_not_there_is_said_and_a_missing_directory_too() {
         let head = json!({"scenario": "S", "file": "s.pv", "line": 1, "passed": true, "ms": 1.0});
-        let mut missed = step(4, "optional expect text \"x\"", 5.0, None, (String::new(), String::new()), vec![], vec![]);
+        let mut missed =
+            step(4, "optional expect text \"x\"", 5.0, None, (String::new(), String::new()), vec![], vec![]);
         missed["optional_missed"] = json!(true);
         let ok = step(5, "goto /", 5.0, None, (String::new(), String::new()), vec![], vec![]);
         let text = [head, missed, ok].iter().map(|v| v.to_string()).collect::<Vec<_>>().join("\n");

@@ -1773,16 +1773,20 @@ fn describe(e: &Expect, value: &str, actual: &str, limit: Duration) -> String {
         }
     };
     let want = if e.matcher == Matcher::Holds { String::new() } else { format!(" {} {value:?}", e.matcher.word()) };
-    let seen = if actual.len() > 300 {
-        format!("{}…", &actual[..actual.floor_char_boundary(300)])
+    // A long value is cut, and says how much more there is and how to see
+    // it whole: paging through a page with failing expects costs a run each.
+    let (seen, more) = if actual.len() > 300 {
+        let cut = actual.floor_char_boundary(300);
+        (format!("{}…", &actual[..cut]), actual[cut..].chars().count())
     } else {
-        actual.to_string()
+        (actual.to_string(), 0)
     };
     // Text looked for on the page has no value to show: "saw \"absent\""
     // read as if the page showed the word.
     let seen = match (&e.subject, seen.as_str()) {
         (Subject::Text { .. }, "absent") => "it isn't on the page".to_string(),
         (Subject::Text { .. }, "present") => "it is still on the page".to_string(),
+        _ if more > 0 => format!("saw {seen:?} ({more} more characters; a `print` step shows a value whole)"),
         _ => format!("saw {seen:?}"),
     };
     format!("expected {not}{what}{want} within {} ms; {seen}", limit.as_millis())
@@ -2187,6 +2191,15 @@ pub fn under_ci() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_long_value_says_how_much_was_cut_and_how_to_see_it() {
+        let words: Vec<String> = ["js", "document.body.innerText", "is", "x"].iter().map(|w| w.to_string()).collect();
+        let e = crate::expect::parse(&words).unwrap();
+        let m = describe(&e, "x", &"é".repeat(400), Duration::from_millis(5000));
+        assert!(m.contains("…\" (250 more characters; a `print` step shows a value whole)"), "{m}");
+        assert!(!describe(&e, "x", "short", Duration::from_millis(5000)).contains("more characters"));
+    }
 
     #[test]
     fn navigera_advice_is_put_in_a_pv_files_terms() {

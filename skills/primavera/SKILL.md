@@ -44,7 +44,8 @@ scenario "Adding a product counts it in the cart"
   total`), used later as `${total}`.
 - `print <command>` shows a result in the run's output without checking or
   waiting: `print get text --testid total`, `print eval "…"`, `print ax
-  --selector main` (the page as a tree). Use it to look while you write.
+  --selector main` (the page as a tree). Use it to look while you write:
+  a failing `expect` shows only 300 characters of what it saw.
 - `optional <step>` may fail (a banner that only sometimes shows); `if
   <expect clause>` runs the steps indented under it when the clause holds.
 

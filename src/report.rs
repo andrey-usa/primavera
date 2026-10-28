@@ -474,7 +474,13 @@ pub fn html(results: &[ScenarioResult], ms: f64, report_dir: &Path) -> String {
                 let _ = write!(
                     out,
                     "<tr class={}><td>{}</td><td><code>{}</code>{}</td><td>{}</td></tr>",
-                    if !s.ok { "bad" } else if s.missed { "skip" } else { "ok" },
+                    if !s.ok {
+                        "bad"
+                    } else if s.missed {
+                        "skip"
+                    } else {
+                        "ok"
+                    },
                     s.line,
                     esc(&s.text),
                     if s.missed { " <em>optional, did not hold</em>" } else { "" },
@@ -539,7 +545,13 @@ mod tests {
             line: 3,
             tags: vec!["smoke".into()],
             ms: 412.0,
-            steps: vec![crate::runner::StepResult { line: 4, text: "goto /cart".into(), ms: 30.0, ok: true, missed: false }],
+            steps: vec![crate::runner::StepResult {
+                line: 4,
+                text: "goto /cart".into(),
+                ms: 30.0,
+                ok: true,
+                missed: false,
+            }],
             failure: None,
             attempt: 1,
             retried: vec![],
