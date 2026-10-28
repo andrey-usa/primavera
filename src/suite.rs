@@ -1515,10 +1515,16 @@ mod tests {
         assert!(e.message.contains("`set who = …` goes at the top of the file, not indented"), "{}", e.message);
         // The browser's own `set` is a step.
         assert!(parse(Path::new("t.pv"), "scenario \"x\"\n  set viewport 800x600\n  goto /\n").is_ok());
-        // What navigera refuses from the words alone fails in lint too.
+        // What navigera refuses from the words alone fails in lint too. An
+        // older navigera (CI builds against `master` too) refuses these only
+        // in the run, so there is nothing for lint to see.
         for (step, said) in
             [("click --text Add --nth 1", "--text takes the one best match"), ("set WHO x", "unknown setting \"WHO\"")]
         {
+            let words: Vec<String> = step.split(' ').map(String::from).collect();
+            if crate::runner::parse(&words).is_ok() {
+                continue;
+            }
             let mut s = vec![parse(Path::new("t.pv"), &format!("scenario \"x\"\n  {step}\n")).unwrap()];
             let e = resolve(&mut s).unwrap_err();
             assert_eq!(e.line, 2);
