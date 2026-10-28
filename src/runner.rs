@@ -267,6 +267,12 @@ impl Runner {
         Ok(Runner { driver, config, opts, fresh: true, attempt: 1, rep: 0 })
     }
 
+    /// This run's settings, for a browser launched before they were final
+    /// (while the app server started).
+    pub fn set_opts(&mut self, opts: Options) {
+        self.opts = opts;
+    }
+
     /// The browser, as the last scenario left it.
     pub fn driver(&mut self) -> &mut Driver {
         &mut self.driver

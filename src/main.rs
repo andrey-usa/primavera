@@ -640,7 +640,35 @@ fn own_state_dir() -> Result<(), String> {
     Ok(())
 }
 
+/// `PRIMAVERA_PHASES=1`: each phase of the run's wall time on stderr, in ms
+/// since the first call (a measurement aid; nothing else changes).
+pub fn phase(label: &str) {
+    static T0: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    let t0 = T0.get_or_init(Instant::now);
+    if std::env::var_os("PRIMAVERA_PHASES").is_some() {
+        eprintln!("phase {:>8.1} ms  {label}", t0.elapsed().as_secs_f64() * 1000.0);
+    }
+}
+
+/// The browser, launching on its own thread while the app server starts.
+/// Dropped without being taken (a failed server, no scenario), it is joined
+/// and closed, so no browser outlives the run.
+struct EarlyBrowser(Option<std::thread::JoinHandle<anyhow::Result<runner::Runner>>>);
+
+impl EarlyBrowser {
+    fn take(&mut self) -> Option<runner::Runner> {
+        self.0.take().and_then(|h| h.join().ok()).and_then(Result::ok)
+    }
+}
+
+impl Drop for EarlyBrowser {
+    fn drop(&mut self) {
+        let _ = self.take();
+    }
+}
+
 fn run(args: Args) -> ExitCode {
+    phase("run() entered");
     let started = Instant::now();
     // This run's own evidence directory, under `.primavera/runs`, must be
     // new: one already there as a link was put there for this moment.
@@ -660,7 +688,20 @@ fn run(args: Args) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    // The app under test, up before the browser and down after the run.
+    // The browser starts while the app does (a `[server]` can take seconds to
+    // answer; the browser needs about one): the same browser, launched sooner.
+    // Without a `[server]` there is nothing to overlap, and the worker
+    // launches it as before.
+    let mut early = EarlyBrowser((args.server.is_some() && args.opts.engine != "lightpanda").then(|| {
+        let opts = args.opts.clone();
+        std::thread::spawn(move || {
+            phase("early browser: launching");
+            let r = runner::Runner::launch(opts);
+            phase("early browser: up");
+            r
+        })
+    }));
+    // The app under test, up before the first scenario and down after the run.
     let _server = match args.server.as_ref().map(server::start) {
         Some(Err(e)) => {
             eprintln!("{e}");
@@ -669,6 +710,7 @@ fn run(args: Args) -> ExitCode {
         Some(Ok(running)) => Some(running),
         None => None,
     };
+    phase("server up");
     let mut opts = args.opts.clone();
     // The first file's `base` serves when the run names none.
     if opts.base.is_none() {
@@ -707,9 +749,13 @@ fn run(args: Args) -> ExitCode {
     // and closes last.
     let mut owner = None;
     let mut forks: Vec<Option<runner::Runner>> = (0..workers).map(|_| None).collect();
+    let mut early_runner = early.take().map(|mut r| {
+        r.set_opts(opts.clone());
+        r
+    });
     // (One worker needs no sharing: its own browser is the one browser.)
     if args.isolation == "context" && workers > 1 && opts.engine != "lightpanda" {
-        match runner::Runner::launch(opts.clone()) {
+        match early_runner.take().map(Ok).unwrap_or_else(|| runner::Runner::launch(opts.clone())) {
             Ok(r) => {
                 for slot in forks.iter_mut() {
                     *slot = r.fork().ok();
@@ -722,6 +768,11 @@ fn run(args: Args) -> ExitCode {
             }
         }
     }
+    // One worker, or a browser each: the first worker starts on the early browser.
+    if forks.first().is_some_and(Option::is_none) {
+        forks[0] = early_runner.take();
+    }
+    phase("jobs planned");
     let queue = Mutex::new(std::collections::VecDeque::from(jobs));
     let (tx, rx) = mpsc::channel::<Event>();
     let mut results: Vec<runner::ScenarioResult> = Vec::new();
@@ -761,6 +812,7 @@ fn run(args: Args) -> ExitCode {
             }
         }
     });
+    phase("all scenarios done");
     drop(owner);
     let left = queue.lock().map(|q| q.len()).unwrap_or(0);
     if left > 0 {

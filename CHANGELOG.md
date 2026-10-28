@@ -59,3 +59,8 @@ The first release, still to be named.
   DevTools method name. An `optional` step that did not hold shows as
   `skip` in a trace and its HTML; `primavera trace <dir> <line>` says when
   there is no such line, and a directory that isn't there says so.
+- With a `[server]`, the browser starts while the app does instead of after
+  it answers, so its launch is off the run's critical path (a bench-site
+  run with a server that takes 1.5 s: 6.8 s -> 6.5 s here; 7.3 s -> 5.9 s
+  on a slower machine). A server that fails to start also closes the
+  browser. `PRIMAVERA_PHASES=1` prints where a run's time goes.
