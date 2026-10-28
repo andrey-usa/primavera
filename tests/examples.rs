@@ -95,15 +95,18 @@ fn a_failure_says_what_was_expected_seen_and_why() {
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("expected --selector #cart-count text is \"2\" within 600 ms; saw \"1\""), "{out}");
     assert!(out.contains("note: the step at line 10 (click --selector \"h1\") changed nothing"), "{out}");
+    // A check that held in between: the click no longer explains the failure.
+    assert!(out.contains("Something else that never shows"), "{out}");
+    assert!(!out.contains("note: the step at line 15"), "{out}");
     assert!(out.contains("screenshot "), "{out}");
     assert!(
-        out.contains("in flow open-docs, failing.pv:15 `expect title contains \"Nope\" --timeout-ms 300`"),
+        out.contains("in flow open-docs, failing.pv:21 `expect title contains \"Nope\" --timeout-ms 300`"),
         "{out}"
     );
     assert!(out.contains("nearest on the page:"), "{out}");
     assert!(out.contains("1. button \"Accept all\""), "{out}");
     assert!(out.contains("--role button --name \"Accept all\""), "{out}");
-    assert!(out.contains("0 passed, 4 failed"), "{out}");
+    assert!(out.contains("0 passed, 5 failed"), "{out}");
 }
 
 #[test]

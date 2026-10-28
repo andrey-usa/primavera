@@ -1049,4 +1049,29 @@ mod tests {
         }
         assert!(help_for("run").unwrap().contains("--pause-on-failure"));
     }
+
+    /// An agent copies the skill's examples as they are: each must lint.
+    #[test]
+    fn the_skills_examples_lint_as_shown() {
+        let blocks: Vec<&str> = SKILL_MD.split("```text\n").skip(1).map(|b| b.split("```").next().unwrap()).collect();
+        // The scripts it names sit next to the .pv, as the skill says.
+        let dir = std::env::temp_dir().join(format!("primavera-skill-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("check.js"), "return true").unwrap();
+        let lints = |text: &str| {
+            let path = dir.join("skill.pv");
+            let mut suites = vec![suite::parse(&path, text).map_err(|e| e.to_string())?];
+            suite::resolve(&mut suites).map_err(|e| e.to_string())
+        };
+        assert!(blocks[0].starts_with("base "), "{}", blocks[0]);
+        lints(blocks[0]).unwrap_or_else(|e| panic!("{e}\n{}", blocks[0]));
+        assert!(blocks[1].starts_with("expect "), "{}", blocks[1]);
+        let steps: String = blocks[1].lines().map(|l| format!("  {l}\n")).collect();
+        let file = format!("scenario \"x\"\n  save total = get text --testid total\n{steps}");
+        lints(&file).unwrap_or_else(|e| panic!("{e}\n{file}"));
+        // A `#` after a step is a word of it, not a comment.
+        for line in blocks[..2].iter().flat_map(|b| b.lines()) {
+            assert!(line.trim_start().starts_with('#') || !line.contains(" # "), "a comment after a step: {line}");
+        }
+    }
 }

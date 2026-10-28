@@ -536,6 +536,7 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
         Auth(String),
     }
     let mut block = Block::None;
+    let mut base_line: Option<usize> = None;
     // Data rows of the scenario being read: (line of `examples`, header, rows).
     let mut rows: BTreeMap<usize, Vec<BTreeMap<String, String>>> = BTreeMap::new();
     let mut table: Option<(usize, Option<Vec<String>>)> = None;
@@ -626,6 +627,10 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
             }
             Some("base") => {
                 let url = words.get(1).ok_or_else(|| err(line_no, "expected `base <url>`".into()))?;
+                if let Some(first) = base_line {
+                    return Err(err(line_no, format!("a second `base` (the first is at line {first}); keep one")));
+                }
+                base_line = Some(line_no);
                 suite.base = Some(url.clone());
                 block = Block::None;
             }
@@ -747,8 +752,11 @@ pub fn parse(file: &Path, text: &str) -> Result<Suite, ParseError> {
                     }
                     k += 1;
                 }
-                if suite.scenarios.iter().any(|s| s.name == name) {
-                    return Err(err(line_no, format!("a second scenario named {name:?}")));
+                if let Some(first) = suite.scenarios.iter().find(|s| s.name == name) {
+                    return Err(err(
+                        line_no,
+                        format!("a second scenario named {name:?} (the first is at line {}); rename one", first.line),
+                    ));
                 }
                 suite.scenarios.push(Scenario { name, tags, line: line_no, steps: Vec::new(), vars: BTreeMap::new() });
                 block = Block::Scenario;
@@ -862,7 +870,14 @@ fn resolve_uses(suite: &mut Suite) -> Result<(), ParseError> {
                 continue;
             }
             let err = |m: String| ParseError { file: suite.file.clone(), line, message: m };
-            let text = std::fs::read_to_string(&path).map_err(|e| err(format!("use {}: {e}", path.display())))?;
+            let text = std::fs::read_to_string(&path).map_err(|e| {
+                err(match e.kind() {
+                    std::io::ErrorKind::NotFound => {
+                        format!("use {}: no such file (a name is found next to this .pv)", path.display())
+                    }
+                    _ => format!("use {}: {}", path.display(), crate::plain_io(&e)),
+                })
+            })?;
             let used = parse(&path, &text)?;
             for (name, flow) in used.flows {
                 suite.flows.entry(name).or_insert(flow);
@@ -886,6 +901,27 @@ fn check_suite(suite: &Suite) -> Result<(), ParseError> {
         fn check(steps: &[Step], file: &Path, suite: &Suite) -> Result<(), ParseError> {
             let flows = &suite.flows;
             for st in steps {
+                // A script that isn't there is a mistake in the test, not
+                // the page: refused even under `if` or `optional`, which
+                // would otherwise read it as a check that didn't hold.
+                let expect = match &st.action {
+                    Action::If { cond, .. } => Some(cond),
+                    Action::Expect(e) => Some(e),
+                    Action::Optional(a) => match a.as_ref() {
+                        Action::Expect(e) => Some(e),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let Some(Expect { subject: crate::expect::Subject::JsFile(f), .. }) = expect {
+                    if !f.contains("${") && !Path::new(f).exists() {
+                        return Err(ParseError {
+                            file: file.to_path_buf(),
+                            line: st.line,
+                            message: format!("js --file {f}: no such file (a script is found next to the .pv)"),
+                        });
+                    }
+                }
                 let action = match &st.action {
                     Action::Optional(a) => a.as_ref(),
                     Action::If { steps, .. } | Action::Exec { steps, .. } | Action::Http { steps, .. } => {
@@ -985,7 +1021,8 @@ fn anchor_inputs(action: &mut Action, dir: &Path) {
             }
             return;
         }
-        Action::Expect(Expect { subject: crate::expect::Subject::JsFile(f), .. }) => {
+        Action::Expect(Expect { subject: crate::expect::Subject::JsFile(f), .. })
+        | Action::If { cond: Expect { subject: crate::expect::Subject::JsFile(f), .. }, .. } => {
             if !f.starts_with("${") && Path::new(f.as_str()).is_relative() {
                 *f = dir.join(f.as_str()).to_string_lossy().into_owned();
             }
@@ -1070,6 +1107,13 @@ fn parse_step(line: &str) -> Result<Action, String> {
 pub fn parse_words(words: &[String]) -> Result<Action, String> {
     match words.first().map(String::as_str) {
         Some("expect") => Ok(Action::Expect(crate::expect::parse(&words[1..])?)),
+        // A file's variable written under a scenario: a step `set` is the
+        // browser's (viewport, locale, …), and would fail only in the run.
+        Some("set") if words.get(2).is_some_and(|w| w == "=") => Err(format!(
+            "`set {} = …` goes at the top of the file, not indented; in a scenario, `save NAME = <command>` keeps \
+             a result",
+            words[1]
+        )),
         Some("save") => {
             // save NAME = <command…>
             if words.len() < 4 || words[2] != "=" {
@@ -1093,7 +1137,9 @@ pub fn parse_words(words: &[String]) -> Result<Action, String> {
             if words.len() < 2 {
                 return Err("expected `if <expect clause>` (as after `expect`), then indented steps".into());
             }
-            let mut cond = crate::expect::parse(&words[1..])?;
+            // `if expect text "x"` reads as written: the word is optional.
+            let clause = if words.len() > 2 && words[1] == "expect" { &words[2..] } else { &words[1..] };
+            let mut cond = crate::expect::parse(clause)?;
             if matches!(cond.subject, crate::expect::Subject::Ax { .. }) {
                 return Err("`if` takes its steps indented under it, so not `ax … matches`".into());
             }
@@ -1460,6 +1506,52 @@ mod tests {
         assert_eq!(s.scenarios[0].tags, ["data"]);
         assert_eq!(s.vars["who"], "ada");
         assert!(s.flows.contains_key("hello"));
+    }
+
+    #[test]
+    fn a_files_variable_under_a_scenario_says_where_it_goes() {
+        let e = parse(Path::new("t.pv"), "scenario \"x\"\n  set who = ada\n  goto /\n").unwrap_err();
+        assert_eq!(e.line, 2);
+        assert!(e.message.contains("`set who = …` goes at the top of the file, not indented"), "{}", e.message);
+        // The browser's own `set` is a step.
+        assert!(parse(Path::new("t.pv"), "scenario \"x\"\n  set viewport 800x600\n  goto /\n").is_ok());
+        // What navigera refuses from the words alone fails in lint too.
+        for (step, said) in
+            [("click --text Add --nth 1", "--text takes the one best match"), ("set WHO x", "unknown setting \"WHO\"")]
+        {
+            let mut s = vec![parse(Path::new("t.pv"), &format!("scenario \"x\"\n  {step}\n")).unwrap()];
+            let e = resolve(&mut s).unwrap_err();
+            assert_eq!(e.line, 2);
+            assert!(e.message.contains(said), "{step}: {}", e.message);
+        }
+    }
+
+    #[test]
+    fn mistakes_in_the_file_say_where_and_what_to_do() {
+        let fails = |text: &str| -> ParseError {
+            match parse(Path::new("t.pv"), text) {
+                Err(e) => e,
+                Ok(s) => resolve(&mut [s]).unwrap_err(),
+            }
+        };
+        let e = fails("base http://a\nbase http://b\nscenario \"x\"\n  goto /\n");
+        assert_eq!((e.line, e.message.as_str()), (2, "a second `base` (the first is at line 1); keep one"));
+        let e = fails("scenario \"x\"\n  goto /\nscenario \"x\"\n  goto /\n");
+        assert_eq!(e.message, "a second scenario named \"x\" (the first is at line 1); rename one");
+        let e = fails("use nowhere.pv\nscenario \"x\"\n  goto /\n");
+        assert_eq!(e.message, "use nowhere.pv: no such file (a name is found next to this .pv)");
+        for step in ["expect js --file nofile.js", "optional expect js --file nofile.js", "if js --file nofile.js"] {
+            let under = if step.starts_with("if") { "    " } else { "  " };
+            let e = fails(&format!("scenario \"x\"\n  {step}\n{under}goto /\n"));
+            assert_eq!(e.message, "js --file nofile.js: no such file (a script is found next to the .pv)", "{step}");
+        }
+        // `if expect …` is the same as `if …`.
+        let with = parse(Path::new("t.pv"), "scenario \"x\"\n  if expect text \"Hi\"\n    goto /\n").unwrap();
+        let without = parse(Path::new("t.pv"), "scenario \"x\"\n  if text \"Hi\"\n    goto /\n").unwrap();
+        assert_eq!(
+            format!("{:?}", with.scenarios[0].steps[0].action),
+            format!("{:?}", without.scenarios[0].steps[0].action)
+        );
     }
 
     #[test]

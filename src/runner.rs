@@ -673,6 +673,13 @@ impl Runner {
                 Ok(())
             }
             Action::Expect(e) => match self.expect(e, scope) {
+                // A check that held: the page answered whatever came before,
+                // so a click that changed nothing at once no longer explains
+                // a later failure.
+                Ok(()) => {
+                    scope.noop = None;
+                    Ok(())
+                }
                 // Noted; the scenario goes on and fails at its end.
                 Err(m) if e.soft => {
                     scope.soft.push((step.clone(), m));
