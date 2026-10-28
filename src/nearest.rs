@@ -99,6 +99,9 @@ pub fn from_tree(text: &str) -> Vec<Value> {
 /// Up to `n` candidates: (`role "name"`, a locator for it, score).
 pub fn rank(ax: &Value, want: &Wanted, n: usize) -> Vec<(String, String, f64)> {
     let mut out: Vec<(String, String, f64)> = Vec::new();
+    // Each locator once, in one hash lookup: a long page has thousands of
+    // close names, and a scan of what is already kept per node was quadratic.
+    let mut seen = std::collections::HashSet::new();
     for node in ax.as_array().into_iter().flatten() {
         let role = node.get("role").and_then(Value::as_str).unwrap_or("");
         let name = node.get("name").and_then(Value::as_str).unwrap_or("").trim();
@@ -123,7 +126,7 @@ pub fn rank(ax: &Value, want: &Wanted, n: usize) -> Vec<(String, String, f64)> {
         }
         let locator =
             if named { format!("--role {role} --name {}", quote(name)) } else { format!("--text {}", quote(name)) };
-        if out.iter().any(|(_, l, _)| *l == locator) {
+        if !seen.insert(locator.clone()) {
             continue;
         }
         out.push((format!("{role} {}", quote(name)), locator, score.min(1.0)));
