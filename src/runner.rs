@@ -1407,7 +1407,8 @@ impl Runner {
                         (holds, actual)
                     }
                     // Waiting longer won't settle it: the step's time is up.
-                    Err(err) if err.contains("did not answer within") => {
+                    // In this navigera's words or an older one's.
+                    Err(err) if err.contains("did not answer within") || err.contains("command timed out") => {
                         return Err(format!("{what} did not finish within {secs} s; a Promise that never settles?"))
                     }
                     Err(err) => (false, err),
