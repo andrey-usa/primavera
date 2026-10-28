@@ -29,10 +29,11 @@ scenario "Adding a product counts it in the cart"
 - Top level: `base <url>`, `set NAME = value`, `before each`, `after each`,
   `scenario "name"`. Steps are indented under them.
 - A step is a navigera command: `goto /cart`, `click <target>`, `fill
-  <target> "text"`, `select <target> "option"`, `press Enter`, `check
-  <target>`, `hover`, `scroll`, `upload <target> file.txt`, `wait --text
-  "Saved"`, `eval "<js>"`, `dialog --accept`, `tab-select 1`. `primavera
-  navigera <command> --help` gives a command's flags and examples.
+  <target> "text"`, `select <target> "option"` (its text or value; case and
+  spacing don't matter), `press Enter`, `check <target>`, `hover`,
+  `scroll`, `upload <target> file.txt`, `wait --text "Saved"`, `eval
+  "<js>"`, `dialog --accept`, `tab-select 1`. `primavera navigera
+  <command> --help` gives a command's flags and examples.
 - Targets are locators, never refs: `--role button --name "Pay"`, `--label
   Email`, `--text "Sign in"`, `--testid total`, `--placeholder Search`,
   `--selector "#id"`. `--nth 1` (0-based) picks among the matches of any but
@@ -46,8 +47,10 @@ scenario "Adding a product counts it in the cart"
   waiting: `print get text --testid total`, `print eval "…"`, `print ax
   --selector main` (the page as a tree). Use it to look while you write:
   a failing `expect` shows only 300 characters of what it saw.
-- `optional <step>` may fail (a banner that only sometimes shows); `if
-  <expect clause>` runs the steps indented under it when the clause holds.
+- `optional <step>` may fail (a banner that only sometimes shows). A
+  banner that comes back on every page needs its dismiss after each
+  `goto`, not only in `before each`. `if <expect clause>` runs the steps
+  indented under it when the clause holds.
 
 ## expect (retried until it holds, 5 s)
 
@@ -102,9 +105,10 @@ FAIL  cart.pv:3  Adding a product counts it in the cart  (5.2 s)
       fix: primavera fix cart.pv:5 --use 1
 ```
 
-Paste the locator in, or run the `fix` line. When a click changed nothing,
-the failure notes it: the page may not have been ready, so add an `expect`
-for what shows it is ready before the click.
+Paste the locator in, or run the `fix` line (`--use 2` for the second: the
+first is not always the element the test is about). When a click changed
+nothing, the failure notes it: the page may not have been ready, so add an
+`expect` for what shows it is ready before the click.
 
 ## Looking at the page
 
