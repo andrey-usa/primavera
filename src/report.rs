@@ -473,10 +473,11 @@ pub fn html(results: &[ScenarioResult], ms: f64, report_dir: &Path) -> String {
             for s in &r.steps {
                 let _ = write!(
                     out,
-                    "<tr class={}><td>{}</td><td><code>{}</code></td><td>{}</td></tr>",
-                    if s.ok { "ok" } else { "bad" },
+                    "<tr class={}><td>{}</td><td><code>{}</code>{}</td><td>{}</td></tr>",
+                    if !s.ok { "bad" } else if s.missed { "skip" } else { "ok" },
                     s.line,
                     esc(&s.text),
+                    if s.missed { " <em>optional, did not hold</em>" } else { "" },
                     secs(s.ms)
                 );
             }
@@ -506,10 +507,10 @@ h1{font-size:18px}details{border:1px solid #ccc;border-radius:4px;margin:6px 0;p
 details.fail{border-left:4px solid #c62828}details.flaky{border-left:4px solid #e0a000}details.pass{border-left:4px solid #2e7d32}\
 summary{cursor:pointer}.dim{color:#666}.tag{color:#555;font-size:12px}code,pre{font:12px ui-monospace,monospace}\
 pre{white-space:pre-wrap;background:#f6f6f6;padding:6px}table{border-collapse:collapse;margin:6px 0}\
-td,th{border-bottom:1px solid #eee;padding:2px 8px;text-align:left;vertical-align:top}tr.bad td{background:#fdecea}\
+td,th{border-bottom:1px solid #eee;padding:2px 8px;text-align:left;vertical-align:top}tr.bad td{background:#fdecea}tr.skip td{background:#fff6e0}\
 .failure{margin:6px 0}.note{color:#555}img{max-width:min(100%,640px);border:1px solid #ccc;margin-top:6px}\
 @media (prefers-color-scheme:dark){body{color:#e6e6e6;background:#121212}pre{background:#1e1e1e}\
-details{border-color:#444}td,th{border-color:#333}tr.bad td{background:#3a1d1d}.dim,.tag,.note{color:#aaa}}";
+details{border-color:#444}td,th{border-color:#333}tr.bad td{background:#3a1d1d}tr.skip td{background:#3a321d}.dim,.tag,.note{color:#aaa}}";
 
 #[cfg(test)]
 mod tests {
@@ -538,7 +539,7 @@ mod tests {
             line: 3,
             tags: vec!["smoke".into()],
             ms: 412.0,
-            steps: vec![crate::runner::StepResult { line: 4, text: "goto /cart".into(), ms: 30.0, ok: true }],
+            steps: vec![crate::runner::StepResult { line: 4, text: "goto /cart".into(), ms: 30.0, ok: true, missed: false }],
             failure: None,
             attempt: 1,
             retried: vec![],

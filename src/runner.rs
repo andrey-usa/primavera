@@ -100,6 +100,8 @@ pub struct StepResult {
     pub text: String,
     pub ms: f64,
     pub ok: bool,
+    /// An `optional` step that did not hold (it didn't fail the scenario).
+    pub missed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -338,11 +340,17 @@ impl Runner {
         if failure.is_none() {
             for step in all {
                 let t = Instant::now();
+                scope.optional_missed = false;
                 let res = self.step(step, &mut scope, suite);
                 let ms = t.elapsed().as_secs_f64() * 1000.0;
-                steps.push(StepResult { line: step.line, text: step.text.clone(), ms, ok: res.is_ok() });
+                let missed = res.is_ok() && scope.optional_missed;
+                steps.push(StepResult { line: step.line, text: step.text.clone(), ms, ok: res.is_ok(), missed });
                 if tracing {
-                    trace.push(self.trace_step(step, ms, res.as_ref().err().map(String::as_str), &mut seen));
+                    let mut tr = self.trace_step(step, ms, res.as_ref().err().map(String::as_str), &mut seen);
+                    if missed {
+                        tr["optional_missed"] = Value::Bool(true);
+                    }
+                    trace.push(tr);
                     if res.is_err() {
                         ax_at_failure = match self.command(&["ax".into(), "--limit".into(), "0".into()]) {
                             Ok(Value::String(t)) => Some(t),
@@ -792,6 +800,7 @@ impl Runner {
             Action::Optional(inner) => {
                 if let Err(e) = self.action(inner, step, scope, suite, depth) {
                     scope.notes.push(format!("optional step at line {} didn't happen: {e}", step.line));
+                    scope.optional_missed = true;
                 }
                 Ok(())
             }
@@ -1331,6 +1340,17 @@ impl Runner {
                 }
             }
             Subject::Js(_) | Subject::JsFile(_) => {
+                // The step's own time bounds the script, not navigera's 35 s.
+                let limit_ms = e.timeout_ms.unwrap_or(self.opts.expect_ms);
+                let eval_ms = (left.as_millis() as u64).clamp(50, limit_ms.max(50)).to_string();
+                let secs = format!("{}", (limit_ms as f64 / 1000.0 * 10.0).round() / 10.0);
+                let what = match &e.subject {
+                    Subject::JsFile(f) => {
+                        let f = scope.word(f)?;
+                        Path::new(&f).file_name().map_or(f.clone(), |n| n.to_string_lossy().into_owned())
+                    }
+                    _ => "the script".to_string(),
+                };
                 let ran = match &e.subject {
                     Subject::JsFile(f) => {
                         let f = scope.word(f)?;
@@ -1342,10 +1362,15 @@ impl Runner {
                         // its answer: tried as the first, then run as the
                         // second. A syntax error in both forms won't go away
                         // by waiting either.
-                        match self.command(&["eval".into(), src.clone()]) {
+                        let tm = ["--timeout-ms".to_string(), eval_ms.clone()];
+                        let mut first = vec!["eval".to_string(), src.clone()];
+                        first.extend(tm.clone());
+                        match self.command(&first) {
                             Err(e) if e.contains("SyntaxError") => {
                                 let body = format!("(async () => {{\n{src}\n}})()");
-                                match self.command(&["eval".into(), body]) {
+                                let mut second = vec!["eval".to_string(), body];
+                                second.extend(tm);
+                                match self.command(&second) {
                                     Err(e2) if e2.contains("SyntaxError") => {
                                         return Err(format!(
                                             "expect js --file {f}: {} (the file is read as an expression, \
@@ -1361,7 +1386,7 @@ impl Runner {
                     }
                     Subject::Js(code) => {
                         let code = scope.word(code)?;
-                        self.command(&["eval".into(), code])
+                        self.command(&["eval".into(), code, "--timeout-ms".into(), eval_ms.clone()])
                     }
                     _ => unreachable!("matched above"),
                 };
@@ -1380,6 +1405,10 @@ impl Runner {
                             compare(&actual, e.matcher, value)
                         };
                         (holds, actual)
+                    }
+                    // Waiting longer won't settle it: the step's time is up.
+                    Err(err) if err.contains("did not answer within") => {
+                        return Err(format!("{what} did not finish within {secs} s; a Promise that never settles?"))
                     }
                     Err(err) => (false, err),
                 }
@@ -1976,6 +2005,8 @@ struct Scope {
     pv: PathBuf,
     /// The step of a flow that failed, and its file (see `Failure::source`).
     inner: Option<(PathBuf, Step)>,
+    /// An `optional` step just now didn't hold.
+    optional_missed: bool,
 }
 
 impl Scope {
@@ -2003,6 +2034,7 @@ impl Scope {
             http_headers: Vec::new(),
             pv: suite.file.clone(),
             inner: None,
+            optional_missed: false,
         };
         // A `set` value's own `${…}` (a default, `--var`, another `set`, a
         // secret, the environment) is filled in once, here; one that names

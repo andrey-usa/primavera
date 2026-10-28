@@ -99,6 +99,14 @@ pub fn render(text: &str, only: Option<usize>, dir: &Path) -> String {
         head["ms"].as_f64().unwrap_or(0.0)
     );
     let mut place = String::new();
+    let lines: Vec<Value> = lines.collect();
+    if let Some(o) = only {
+        if !lines.iter().any(|s| s["line"].as_u64() == Some(o as u64)) {
+            let has: Vec<String> = lines.iter().filter_map(|s| s["line"].as_u64()).map(|l| l.to_string()).collect();
+            let _ = writeln!(out, "no step at line {o} in this trace; it has lines {}", has.join(", "));
+            return out;
+        }
+    }
     for s in lines {
         let line = s["line"].as_u64().unwrap_or(0) as usize;
         if only.is_some_and(|o| o != line) {
@@ -109,7 +117,13 @@ pub fn render(text: &str, only: Option<usize>, dir: &Path) -> String {
             out,
             "{:>5}  {}  {:>7.0} ms  {}",
             line,
-            if ok { "ok  " } else { "FAIL" },
+            if !ok {
+                "FAIL"
+            } else if s["optional_missed"] == true {
+                "skip"
+            } else {
+                "ok  "
+            },
             s["ms"].as_f64().unwrap_or(0.0),
             s["text"].as_str().unwrap_or("")
         );
@@ -157,6 +171,7 @@ pub fn render(text: &str, only: Option<usize>, dir: &Path) -> String {
 pub fn show(dir: &Path, only: Option<usize>) -> Result<String, String> {
     let files = find(dir);
     match files.as_slice() {
+        [] if !dir.is_dir() => Err(format!("{}: no such directory", dir.display())),
         [] => Err(format!(
             "no trace in {}, in a scenario's directory under it, or in the latest run under it. Give a \
              run's directory (.primavera/runs/<time>) or one scenario's; a run writes traces with \
@@ -225,5 +240,22 @@ mod tests {
         assert_eq!(last_request("#1 GET 200 a\n#12 POST 201 b\n"), 12);
         assert_eq!(Trace::parse("on-failure"), Ok(Trace::OnFailure));
         assert!(Trace::parse("sometimes").is_err());
+    }
+
+    #[test]
+    fn a_step_that_is_not_there_is_said_and_a_missing_directory_too() {
+        let head = json!({"scenario": "S", "file": "s.pv", "line": 1, "passed": true, "ms": 1.0});
+        let mut missed = step(4, "optional expect text \"x\"", 5.0, None, (String::new(), String::new()), vec![], vec![]);
+        missed["optional_missed"] = json!(true);
+        let ok = step(5, "goto /", 5.0, None, (String::new(), String::new()), vec![], vec![]);
+        let text = [head, missed, ok].iter().map(|v| v.to_string()).collect::<Vec<_>>().join("\n");
+        let all = render(&text, None, Path::new("d"));
+        assert!(all.contains("    4  skip") && all.contains("    5  ok  "), "{all}");
+        for n in [0, 99] {
+            let none = render(&text, Some(n), Path::new("d"));
+            assert!(none.contains(&format!("no step at line {n} in this trace; it has lines 4, 5")), "{none}");
+        }
+        let e = show(Path::new("/nonexist-primavera-dir"), None).unwrap_err();
+        assert_eq!(e, "/nonexist-primavera-dir: no such directory");
     }
 }

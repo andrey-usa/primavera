@@ -549,7 +549,16 @@ fn main() -> ExitCode {
         }
         "trace" => {
             let dir = args.paths.first().cloned().unwrap_or_else(|| PathBuf::from(".primavera/runs"));
-            let only = args.paths.get(1).and_then(|p| p.to_str()?.parse::<usize>().ok());
+            let only = match args.paths.get(1) {
+                None => None,
+                Some(p) => match p.to_str().and_then(|w| w.parse::<usize>().ok()) {
+                    Some(n) => Some(n),
+                    None => {
+                        eprintln!("{}: not a line number (primavera trace <dir> <line>)", p.display());
+                        return ExitCode::from(2);
+                    }
+                },
+            };
             match trace::show(&dir, only) {
                 Ok(text) => {
                     print!("{text}");

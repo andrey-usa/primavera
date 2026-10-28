@@ -125,8 +125,8 @@ mod tests {
             tags: vec!["smoke".into()],
             ms: 300.0,
             steps: vec![
-                StepResult { line: 4, text: "goto /cart".into(), ms: 100.0, ok: true },
-                StepResult { line: 5, text: "click --text Pay".into(), ms: 200.0, ok: false },
+                StepResult { line: 4, text: "goto /cart".into(), ms: 100.0, ok: true, missed: false },
+                StepResult { line: 5, text: "click --text Pay".into(), ms: 200.0, ok: false, missed: false },
             ],
             failure: Some(Failure {
                 line: 5,

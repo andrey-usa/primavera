@@ -1049,3 +1049,53 @@ fn set_values_fill_in_their_variables() {
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("1 passed, 0 failed"), "{out}");
 }
+
+#[test]
+fn a_script_that_never_settles_is_bounded_by_the_step_and_an_optional_miss_shows() {
+    let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
+    let dir = std::env::temp_dir().join(format!("pv-t125-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("never.js"), "new Promise(() => {})").unwrap();
+    let pv = dir.join("t.pv");
+    std::fs::write(
+        &pv,
+        "scenario \"Never\"\n  goto /login\n  expect js --file never.js --timeout-ms 1500\n\
+         scenario \"Optional\"\n  goto /login\n  optional expect text \"Nothing here\" --timeout-ms 300\n",
+    )
+    .unwrap();
+    let ev = dir.join("ev");
+    let start = std::time::Instant::now();
+    let out = Command::new(env!("CARGO_BIN_EXE_primavera"))
+        .args(["run", pv.to_str().unwrap(), "--base-url", &site.1, "--trace", "all"])
+        .args(["--evidence", ev.to_str().unwrap(), "--html", dir.join("r.html").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+    assert!(start.elapsed().as_secs() < 25, "{text}");
+    assert!(text.contains("never.js did not finish within 1.5 s; a Promise that never settles?"), "{text}");
+    assert!(!text.contains("Runtime.evaluate") && !text.contains("35000"), "{text}");
+    let html = std::fs::read_to_string(dir.join("r.html")).unwrap();
+    assert!(html.contains("<tr class=skip>") && html.contains("optional, did not hold"), "{html}");
+    let trace = |extra: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_primavera")).arg("trace").args(extra).output().unwrap();
+        (out.status.code(), String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr))
+    };
+    let opt = std::fs::read_dir(&ev)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.is_dir() && p.to_str().unwrap().contains("optional"))
+        .expect("the optional scenario's trace");
+    let o = opt.to_str().unwrap();
+    let (_, shown) = trace(&[o]);
+    assert!(shown.contains("skip") && shown.contains("optional expect text \"Nothing here\""), "{shown}");
+    let (code, no_step) = trace(&[o, "99"]);
+    assert_eq!(code, Some(0), "{no_step}");
+    assert!(no_step.contains("no step at line 99 in this trace; it has lines"), "{no_step}");
+    let (code, nan) = trace(&[o, "abc"]);
+    assert_eq!(code, Some(2), "{nan}");
+    assert!(nan.contains("abc: not a line number"), "{nan}");
+    let (code, gone) = trace(&["/nonexist"]);
+    assert_eq!(code, Some(2));
+    assert_eq!(gone.trim(), "/nonexist: no such directory");
+    std::fs::remove_dir_all(&dir).ok();
+}
