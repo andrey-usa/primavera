@@ -75,9 +75,11 @@ pub fn console_line(r: &ScenarioResult) -> String {
     let _ = writeln!(out, "{mark:<5} {}:{}  {}  ({}{tries})", rel(&r.file), r.line, r.name, secs(r.ms));
     for n in r.notes.iter().filter_map(|n| n.strip_prefix(crate::runner::PRINTED)) {
         let (line, text) = n.split_once(": ").unwrap_or(("?", n));
-        let _ = writeln!(out, "      print, line {line}:");
+        // Shallow indents: an agent reads every byte, and a page tree is
+        // tens of lines (8 spaces each was ~600 bytes of a whole-page print).
+        let _ = writeln!(out, "  print, line {line}:");
         for l in text.lines() {
-            let _ = writeln!(out, "        {l}");
+            let _ = writeln!(out, "    {l}");
         }
     }
     if let Some(f) = &r.failure {
@@ -730,7 +732,7 @@ mod tests {
             started: 0.0,
         };
         let out = console_line(&r);
-        assert!(out.contains("print, line 2:\n        49.55"), "{out}");
+        assert!(out.contains("\n  print, line 2:\n    49.55"), "{out}");
         assert!(!out.contains("optional step"), "{out}");
     }
 }
