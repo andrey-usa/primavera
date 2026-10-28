@@ -1053,7 +1053,9 @@ mod tests {
     /// An agent copies the skill's examples as they are: each must lint.
     #[test]
     fn the_skills_examples_lint_as_shown() {
-        let blocks: Vec<&str> = SKILL_MD.split("```text\n").skip(1).map(|b| b.split("```").next().unwrap()).collect();
+        // A Windows checkout has the file with CRLF line ends.
+        let skill = SKILL_MD.replace("\r\n", "\n");
+        let blocks: Vec<&str> = skill.split("```text\n").skip(1).map(|b| b.split("```").next().unwrap()).collect();
         // The scripts it names sit next to the .pv, as the skill says.
         let dir = std::env::temp_dir().join(format!("primavera-skill-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
