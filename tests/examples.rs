@@ -1099,3 +1099,38 @@ fn a_script_that_never_settles_is_bounded_by_the_step_and_an_optional_miss_shows
     assert_eq!(gone.trim(), "/nonexist: no such directory");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// A run costs about the same for each scenario: 40 scenarios take about 4x
+/// what 10 do (a little less, as the browser launch is paid once). A cost
+/// per scenario that grows with the scenarios already run (a list scanned
+/// per scenario, evidence or timings rewritten whole each time) shows as a
+/// ratio of 16. Two sizes and a ratio, so a slow runner can't fail it; the
+/// bound is the one navigera's scaling tests use.
+#[test]
+fn a_run_costs_the_same_for_each_scenario() {
+    let Some(_turn) = chrome() else {
+        return;
+    };
+    let dir = std::env::temp_dir().join(format!("primavera-linear-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let timed = |n: usize| {
+        let file = dir.join(format!("s{n}.pv"));
+        let text: String = (0..n)
+            .map(|i| {
+                format!(
+                    "scenario \"s{i}\"\n  goto \"data:text/html,<p>hi {i}</p>\"\n  expect --selector \"p\" visible\n\n"
+                )
+            })
+            .collect();
+        std::fs::write(&file, text).unwrap();
+        let started = std::time::Instant::now();
+        let (code, out) = primavera(&["run", &file.display().to_string(), "--workers", "1"]);
+        assert_eq!(code, 0, "{out}");
+        assert!(out.contains(&format!("{n} passed, 0 failed")), "{out}");
+        started.elapsed()
+    };
+    let (small, large) = (timed(10), timed(40));
+    let ratio = large.as_secs_f64() / small.as_secs_f64().max(0.001);
+    assert!(ratio < 8.0, "10 scenarios {small:?}, 40 {large:?}: {ratio:.1}x");
+    std::fs::remove_dir_all(&dir).ok();
+}
