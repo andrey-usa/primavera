@@ -417,6 +417,37 @@ fn screenshots_match_their_baselines() {
 }
 
 #[test]
+fn press_understands_control_or_meta() {
+    let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
+    let dir = std::env::temp_dir().join(format!("pv-chord-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let want = if cfg!(target_os = "macos") {
+        "window.mods.some(m => m[0] === 'k' && m[2] === true && m[1] === false)"
+    } else {
+        "window.mods.some(m => m[0] === 'k' && m[1] === true && m[2] === false)"
+    };
+    let pv = dir.join("chord.pv");
+    std::fs::write(
+        &pv,
+        format!(
+            "scenario \"A chord\"\n  goto /login\n  \
+             eval \"(() => {{ window.mods = []; document.addEventListener('keydown', e => window.mods.push([e.key, e.ctrlKey, e.metaKey])); return 1; }})()\"\n  \
+             press \"ControlOrMeta+k\"\n  \
+             expect js \"{want}\"\n"
+        ),
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_primavera"))
+        .args(["run", pv.to_str().unwrap(), "--base-url", &site.1, "--evidence", &dir.join("ev").display().to_string()])
+        .args(["--timeout-ms", "3000"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "{text}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn element_screenshots_find_their_element_in_frames_and_scroll_containers() {
     let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
     let dir = std::env::temp_dir().join(format!("pv-shots-el-{}", std::process::id()));

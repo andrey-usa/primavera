@@ -965,6 +965,14 @@ impl Runner {
     /// One navigera command line, run in-process.
     fn command(&mut self, words: &[String]) -> Result<Value, String> {
         let words = self.absolute(words)?;
+        // A key chord's ControlOrMeta, as Playwright spells it: Meta on a
+        // Mac, Control elsewhere.
+        let words = if matches!(words.first().map(String::as_str), Some("press" | "key" | "keypress")) {
+            let modifier = if cfg!(target_os = "macos") { "Meta" } else { "Control" };
+            words.iter().map(|w| w.replace("ControlOrMeta", modifier)).collect()
+        } else {
+            words
+        };
         let cmd = parse(&words)?;
         if matches!(cmd, Command::Quit { .. }) {
             return Err("`quit` isn't a step: the run closes the browser".into());
