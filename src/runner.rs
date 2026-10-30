@@ -1098,9 +1098,7 @@ impl Runner {
         let base = crate::shot::decode(&base_bytes).map_err(|e| format!("{}: {e}", baseline.display()))?;
         let verdict = crate::shot::compare(&base, &img, shot.threshold);
         let ok = match &verdict {
-            Ok(d) => {
-                d.pixels <= shot.max_pixels && shot.max_ratio.is_none_or(|r| d.pixels as f64 <= r * d.total as f64)
-            }
+            Ok(d) => shot.allows(d.pixels, d.total),
             Err(_) => false,
         };
         if ok {
@@ -1123,9 +1121,7 @@ impl Runner {
                         d.pixels,
                         d.total,
                         100.0 * d.pixels as f64 / d.total.max(1) as f64,
-                        shot.max_ratio
-                            .map(|r| format!("{:.2}%", r * 100.0))
-                            .unwrap_or_else(|| shot.max_pixels.to_string()),
+                        shot.allowed(),
                         actual.display(),
                         diff.display()
                     )

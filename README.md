@@ -193,9 +193,11 @@ Status: pre-release. Everything below works in this build.
   fails the step). An element is scrolled into view first, inside its
   scroll containers and frames, and cropped where it is on the page, in an
   iframe too. Two pixels differ when their
-  colour distance is over `--threshold` (0 to 1); a mismatch writes this
-  run's image and a diff (the differing pixels red) to the evidence
-  directory and names both.
+  colour distance is over `--threshold` (0 to 1). `--max-diff-pixels` and
+  `--max-diff-ratio` (a share of the pixels, 0 to 1) set how many may
+  differ; when both are given both must hold, and with neither none may. A
+  mismatch writes this run's image and a diff (the differing pixels red) to
+  the evidence directory and names both.
 
   Copy the lines from `navigera ax` and keep the ones that matter. A miss
   names the first line that has no place and the nearest line of its role

@@ -134,10 +134,34 @@ pub struct Shot {
     pub full_page: bool,
     /// Colour distance two pixels may have and still match (0..1).
     pub threshold: f64,
-    pub max_pixels: u64,
+    /// How many pixels may differ, and what share of them (0..1); each one
+    /// given has to hold. With neither, none may.
+    pub max_pixels: Option<u64>,
     pub max_ratio: Option<f64>,
     /// CSS selectors painted over before the shot (a clock, an ad).
     pub masks: Vec<String>,
+}
+
+impl Shot {
+    /// Whether `pixels` differing of `total` is within what the step allows:
+    /// each limit given (`--max-diff-pixels`, `--max-diff-ratio`) holds, and
+    /// with none given no pixel may differ.
+    pub fn allows(&self, pixels: u64, total: u64) -> bool {
+        let by_count = self.max_pixels.is_none_or(|n| pixels <= n);
+        let by_ratio = self.max_ratio.is_none_or(|r| pixels as f64 <= r * total as f64);
+        let exact = self.max_pixels.is_none() && self.max_ratio.is_none();
+        by_count && by_ratio && (!exact || pixels == 0)
+    }
+
+    /// What the step allows, for the failure line.
+    pub fn allowed(&self) -> String {
+        match (self.max_pixels, self.max_ratio) {
+            (None, None) => "0 pixels".into(),
+            (Some(n), None) => format!("{n} pixels"),
+            (None, Some(r)) => format!("{:.2}%", r * 100.0),
+            (Some(n), Some(r)) => format!("{n} pixels and {:.2}%", r * 100.0),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -444,7 +468,7 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
                 flags: Vec::new(),
                 full_page: false,
                 threshold: 0.2,
-                max_pixels: 0,
+                max_pixels: None,
                 max_ratio: None,
                 masks: Vec::new(),
             };
@@ -458,7 +482,7 @@ fn parse_inner(words: &[String]) -> Result<Expect, String> {
                 let num = |v: &str| v.parse::<f64>().map_err(|_| format!("{f} takes a number, not {v:?}"));
                 match f.as_str() {
                     "--threshold" => shot.threshold = num(&v)?.clamp(0.0, 1.0),
-                    "--max-diff-pixels" => shot.max_pixels = num(&v)? as u64,
+                    "--max-diff-pixels" => shot.max_pixels = Some(num(&v)? as u64),
                     "--max-diff-ratio" => shot.max_ratio = Some(num(&v)?),
                     "--mask" => shot.masks.push(v),
                     f if f.starts_with("--") => shot.flags.extend([f.to_string(), v]),
@@ -780,6 +804,31 @@ impl Matcher {
 
 #[cfg(test)]
 mod tests {
+    fn shot(max_pixels: Option<u64>, max_ratio: Option<f64>) -> Shot {
+        Shot { name: "s".into(), flags: vec![], full_page: false, threshold: 0.2, max_pixels, max_ratio, masks: vec![] }
+    }
+
+    #[test]
+    fn a_screenshot_allows_what_its_limits_allow() {
+        // Neither limit: exact.
+        assert!(shot(None, None).allows(0, 1000));
+        assert!(!shot(None, None).allows(1, 1000));
+        // A ratio alone (0.1% of 10 000 pixels is 10): just under, on it, just over.
+        let r = shot(None, Some(0.001));
+        assert!(r.allows(9, 10_000) && r.allows(10, 10_000) && !r.allows(11, 10_000));
+        // A count alone.
+        let n = shot(Some(5), None);
+        assert!(n.allows(5, 10_000) && !n.allows(6, 10_000));
+        // Both: each has to hold.
+        let both = shot(Some(5), Some(0.001));
+        assert!(both.allows(5, 10_000));
+        assert!(!both.allows(6, 10_000), "over the count");
+        assert!(!shot(Some(50), Some(0.001)).allows(11, 10_000), "over the ratio");
+        assert_eq!(both.allowed(), "5 pixels and 0.10%");
+        assert_eq!(r.allowed(), "0.10%");
+        assert_eq!(n.allowed(), "5 pixels");
+    }
+
     use super::*;
 
     fn p(line: &str) -> Result<Expect, String> {

@@ -378,6 +378,28 @@ fn screenshots_match_their_baselines() {
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("pixels differ") && out.contains("pay-diff.png"), "{out}");
     assert!(dir.join("ev").join("look.pv-pay-actual.png").exists());
+    // A share of the pixels is allowed by `--max-diff-ratio` on its own: the
+    // whole button differs, so 100% lets the shots pass and 0.1% does not.
+    let plain = std::fs::read_to_string(&pv).unwrap();
+    let with_ratio = |r: &str| {
+        let text = plain
+            .replace(
+                "expect screenshot pay --selector \"#b\"",
+                &format!("expect screenshot pay --selector \"#b\" --max-diff-ratio {r}"),
+            )
+            .replace(
+                "expect screenshot page --mask \"#clock\"",
+                &format!("expect screenshot page --mask \"#clock\" --max-diff-ratio {r}"),
+            );
+        std::fs::write(&pv, text).unwrap();
+    };
+    with_ratio("0.001");
+    let (code, out) = run(&["--var", "color=red"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("0.10% allowed"), "{out}");
+    with_ratio("1");
+    let (code, out) = run(&["--var", "color=red"]);
+    assert_eq!(code, 0, "{out}");
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -1132,5 +1154,25 @@ fn a_run_costs_the_same_for_each_scenario() {
     let (small, large) = (timed(10), timed(40));
     let ratio = large.as_secs_f64() / small.as_secs_f64().max(0.001);
     assert!(ratio < 8.0, "10 scenarios {small:?}, 40 {large:?}: {ratio:.1}x");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A run whose browser never starts says so and exits 3 ("the browser or the
+/// app server didn't start"), with the scenarios counted as not run, not
+/// the 0 of a run that passed.
+#[test]
+fn a_browser_that_never_starts_is_an_exit_code_not_a_pass() {
+    let dir = std::env::temp_dir().join(format!("pv-nobrowser-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let pv = dir.join("t.pv");
+    std::fs::write(&pv, "scenario \"A\"\n  goto /\nscenario \"B\"\n  goto /\n").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_primavera"))
+        .args(["run", pv.to_str().unwrap(), "--base-url", "http://127.0.0.1:9"])
+        .env("CHROME_BIN", dir.join("no-such-chrome"))
+        .output()
+        .expect("run primavera");
+    let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(3), "{text}");
+    assert!(text.contains("the browser didn't start") && text.contains("2 scenarios not run"), "{text}");
     std::fs::remove_dir_all(&dir).ok();
 }
