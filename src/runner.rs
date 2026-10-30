@@ -986,10 +986,82 @@ impl Runner {
         Ok(words)
     }
 
+    /// The one in-page wait for an `expect` whose subject navigera can
+    /// watch (see `expect`): the wait's words, or None when the subject
+    /// stays on the 25 ms loop. The predicate mirrors the read `check`
+    /// makes and asks for the success side (`holds != negate`); an
+    /// expression error returns true so a mirrored predicate that
+    /// diverges from the real read wakes early and the confirming read
+    /// decides, never blocks a pass. Only `--selector <css>` targets map
+    /// to one; the richer targets have no page-side predicate here.
+    fn wake_wait(
+        &mut self,
+        e: &Expect,
+        value: &str,
+        scope: &Scope,
+        left: Duration,
+    ) -> Result<Option<Vec<String>>, String> {
+        let ms = left.as_millis().max(1).to_string();
+        let negate = if e.negate { "true" } else { "false" };
+        let predicate = match &e.subject {
+            // `expect not text`: the read is an eval over the top-level
+            // documents; the wait is its exact mirror on the success side.
+            Subject::Text { text: t, within: None } if e.negate => format!(
+                "(() => {{ try {{ const t = {}; const docs = [document];                  for (const f of document.querySelectorAll('iframe,frame')) {{ try {{ if (f.contentDocument) docs.push(f.contentDocument); }} catch (_) {{}} }}                  return !docs.some((d) => d.body && d.body.innerText.includes(t)); }} catch (_) {{ return true; }} }})()",
+                serde_json::to_string(&scope.word(t)?).unwrap_or_default()
+            ),
+            Subject::Target { flags, prop } => {
+                let flags = scope.words(flags)?;
+                let sel = match flags.as_slice() {
+                    [flag, sel] if flag == "--selector" => sel.clone(),
+                    _ => return Ok(None),
+                };
+                let sel = serde_json::to_string(&sel).unwrap_or_default();
+                let value_j = serde_json::to_string(value).unwrap_or_default();
+                let m = e.matcher.word();
+                let cmp = |actual: &str| format!("__pvCmp(({actual}), {m:?}, {value_j})");
+                let holds = match prop {
+                    Prop::State(state) if state == "visible" => {
+                        format!("{WAKE_DEEP} __pvVisible(__pvFirst({sel}))")
+                    }
+                    // A missing element is hidden, as `is hidden` answers.
+                    Prop::State(state) if state == "hidden" => {
+                        format!("{WAKE_DEEP} !__pvVisible(__pvFirst({sel}))")
+                    }
+                    // A bare `expect <target> <prop>` (no matcher) is a
+                    // read, not a condition: nothing to wait for.
+                    Prop::Count | Prop::Text | Prop::Value | Prop::Attr(_) | Prop::Style(_)
+                        if e.matcher == crate::expect::Matcher::Holds =>
+                    {
+                        return Ok(None)
+                    }
+                    Prop::Count => cmp(&format!("String(__pvAll({sel}).length)")),
+                    Prop::Text => cmp(&format!(
+                        "(__pvFirst({sel}) ? (__pvFirst({sel}).innerText ?? __pvFirst({sel}).textContent ?? '') : '').trim()"
+                    )),
+                    Prop::Value => cmp(&format!("(__pvFirst({sel}) ? String(__pvFirst({sel}).value ?? '') : '').trim()")),
+                    Prop::Attr(name) => cmp(&format!(
+                        "(__pvFirst({sel}) ? String(__pvFirst({sel}).getAttribute({}) ?? '') : '').trim()",
+                        serde_json::to_string(name).unwrap_or_default()
+                    )),
+                    Prop::Style(name) => cmp(&format!(
+                        "(__pvFirst({sel}) ? String((__pvFirst({sel}).ownerDocument.defaultView || window).getComputedStyle(__pvFirst({sel})).getPropertyValue({}) ?? '') : '').trim()",
+                        serde_json::to_string(name).unwrap_or_default()
+                    )),
+                    _ => return Ok(None),
+                };
+                format!("(() => {{ try {{ {WAKE_DEEP}{WAKE_CMP} return ({holds}) !== {negate}; }} catch (_) {{ return true; }} }})()")
+            }
+            _ => return Ok(None),
+        };
+        Ok(Some(vec!["wait".into(), "--js".into(), predicate, "--timeout-ms".into(), ms]))
+    }
+
     fn expect(&mut self, e: &Expect, scope: &mut Scope) -> Result<(), String> {
         let limit = Duration::from_millis(e.timeout_ms.unwrap_or(self.opts.expect_ms));
         let deadline = Instant::now() + limit;
         let value = scope.word(&e.value)?;
+        let mut woken = false;
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             let (holds, actual) = self.check(e, &value, scope, left)?;
@@ -1004,6 +1076,24 @@ impl Runner {
             }
             if Instant::now() >= deadline {
                 return Err(describe(e, &value, &actual, limit));
+            }
+            // The DOM subjects navigera can watch in the page: after the
+            // first real read says not-yet, one wait bounded by the time
+            // left has the page wake the runner instead of the 25 ms poll.
+            // The predicate mirrors the read check() makes; a fired wait is
+            // confirmed by the loop's next read, and a wait that errors or
+            // times out leaves the loop to finish as it does without it
+            // (its last read gives the failure its actual). An expectation
+            // that already holds pays nothing for this.
+            if !woken {
+                woken = true;
+                let left = deadline.saturating_duration_since(Instant::now());
+                if !left.is_zero() {
+                    if let Some(words) = self.wake_wait(e, &value, scope, left)? {
+                        let _ = self.command(&words);
+                        continue;
+                    }
+                }
             }
             std::thread::sleep(Duration::from_millis(25));
         }
@@ -1630,6 +1720,40 @@ impl Drop for Runner {
         self.driver.session().close();
     }
 }
+
+/// The page-side helpers an `expect` wake wait's predicate resolves and
+/// reads elements with: the same deep search navigera's own reads use
+/// (the documents of the same-origin frame tree, plus open shadow roots;
+/// first match in that order), and its `is visible` rule. The `__pv`
+/// prefix keeps clear of navigera's own `__nv` names.
+const WAKE_DEEP: &str = r#"const __pvDocs = (d, out) => { out.push(d); for (const f of d.querySelectorAll('iframe, frame')) { let cd = null; try { cd = f.contentDocument; } catch (_) {} if (cd && cd.documentElement) __pvDocs(cd, out); } return out; };
+const __pvShadows = (root, out) => { const tw = (root.ownerDocument || root).createTreeWalker(root, NodeFilter.SHOW_ELEMENT); for (let n = tw.nextNode(); n; n = tw.nextNode()) { if (n.shadowRoot) { out.push(n.shadowRoot); __pvShadows(n.shadowRoot, out); } } return out; };
+const __pvRoots = () => { const out = []; for (const d of __pvDocs(document, [])) { out.push(d); __pvShadows(d, out); } return out; };
+const __pvFirst = (sel) => { for (const r of __pvRoots()) { const el = r.querySelector(sel); if (el) return el; } return null; };
+const __pvAll = (sel) => __pvRoots().flatMap((r) => Array.from(r.querySelectorAll(sel)));
+const __pvVisible = (el) => !!el && el.getClientRects().length > 0 && (el.ownerDocument.defaultView || window).getComputedStyle(el).visibility !== 'hidden';
+"#;
+
+/// `compare()` mirrored for a wake wait's predicate: the matcher word is
+/// the switch key, strings compare as primavera's trimmed reads do,
+/// numbers as its `parse::<f64>` (an empty or non-numeric side is not a
+/// number). Anything the mirror cannot say (a pattern JS rejects) throws,
+/// and the predicate's own catch wakes early instead of blocking a pass.
+const WAKE_CMP: &str = r#"const __pvNum = (s) => { const t = String(s).trim(); if (t === '') return null; const n = Number(t); return Number.isNaN(n) ? null : n; };
+const __pvCmp = (actual, m, expected) => { actual = String(actual); switch (m) {
+  case 'is': return actual === expected || (__pvNum(actual) !== null && __pvNum(expected) !== null && __pvNum(actual) === __pvNum(expected));
+  case 'contains': return actual.includes(expected);
+  case 'starts-with': return actual.startsWith(expected);
+  case 'ends-with': return actual.endsWith(expected);
+  case 'matches': return new RegExp(expected).test(actual);
+  case '>': case '>=': case '<': case '<=': {
+    const a = __pvNum(actual), b = __pvNum(expected);
+    if (a === null || b === null) return false;
+    if (m === '>') return a > b; if (m === '>=') return a >= b; if (m === '<') return a < b; return a <= b;
+  }
+  default: return false;
+} };
+"#;
 
 /// axe-core (vendor/axe-core), put in the page by `expect accessible`.
 const AXE: &str = include_str!("../vendor/axe-core/axe.min.js");

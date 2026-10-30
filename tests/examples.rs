@@ -125,6 +125,19 @@ fn lint_and_list_need_no_browser() {
 }
 
 #[test]
+fn an_expect_is_woken_by_the_pages_change() {
+    let (Some(_turn), Some(site)) = (chrome(), own_site()) else {
+        return;
+    };
+    // Text that arrives 200 ms in, text that goes 300 ms in (a negated
+    // expect), a target's text that changes 200 ms in: the page wakes
+    // each wait, well inside the timeout.
+    let (code, out) = primavera(&["run", "tests/fixtures/wake.pv", "--base-url", &site.1]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("3 passed, 0 failed"), "{out}");
+}
+
+#[test]
 fn workers_retries_and_reporters() {
     let (Some(_turn), Some(site)) = (chrome(), own_site()) else { return };
     // Retried: the first try fails, the second passes, and that is flaky.

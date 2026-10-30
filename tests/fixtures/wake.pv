@@ -1,0 +1,14 @@
+scenario "Late text wakes its expect"
+  goto /login
+  eval "(() => { setTimeout(() => { const d = document.createElement('div'); d.textContent = 'arrived late'; document.body.appendChild(d); }, 200); return 1; })()"
+  expect text "arrived late"
+
+scenario "A negated expect wakes when the text goes"
+  goto /login
+  eval "(() => { const d = document.createElement('div'); d.textContent = 'Saving'; document.body.appendChild(d); setTimeout(() => d.remove(), 300); return 1; })()"
+  expect not text Saving
+
+scenario "A changing target wakes its expect"
+  goto /login
+  eval "(() => { const d = document.createElement('div'); d.id = 'c'; d.textContent = '1'; document.body.appendChild(d); setTimeout(() => { d.textContent = '3'; }, 200); return 1; })()"
+  expect --selector "#c" text is 3

@@ -324,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "navigera"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "anyhow",
  "base64",
